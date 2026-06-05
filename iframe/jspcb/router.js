@@ -135,10 +135,7 @@ var js_pcb = js_pcb || {};
 			this.unmark_distances();
 			this.reset_areas();
 			this.shuffle_netlist();
-			this.m_netlist.sort(function (n1, n2) {
-				if (n1.m_area === n2.m_area) return n1.m_radius - n2.m_radius;
-				return n1.m_area - n2.m_area;
-			});
+			this.sortNetlistSmart();
 			let hoisted_nets = new Set();
 			let index = 0;
 			//		let start_time = std::chrono::high_resolution_clock::now();
@@ -148,10 +145,7 @@ var js_pcb = js_pcb || {};
 					if (index === 0) {
 						this.reset_areas();
 						this.shuffle_netlist();
-						this.m_netlist.sort(function (n1, n2) {
-							if (n1.m_area === n2.m_area) return n1.m_radius - n2.m_radius;
-							return n1.m_area - n2.m_area;
-						});
+						this.sortNetlistSmart();
 						hoisted_nets.clear();
 					} else {
 						let pos = this.hoist_net(index);
@@ -668,6 +662,43 @@ var js_pcb = js_pcb || {};
 			for (let net of this.m_netlist) {
 				[net.m_area, net.m_bbox] = aabb_terminals(net.m_terminals, this.m_quantization);
 			}
+		}
+
+		// 判断是否有层约束（优先级高）
+		hasLayerConstraints(net) {
+			return net.m_allowedLayers && net.m_allowedLayers.length > 0;
+		}
+
+		// 获取引脚数量（多的优先）
+		getPinCount(net) {
+			return net.m_terminals ? net.m_terminals.length : 0;
+		}
+
+		// 智能网络排序
+		sortNetlistSmart() {
+			this.m_netlist.sort((n1, n2) => {
+				// 1. 优先有层约束的网络
+				const hasLayers1 = this.hasLayerConstraints(n1);
+				const hasLayers2 = this.hasLayerConstraints(n2);
+				if (hasLayers1 !== hasLayers2) {
+					return hasLayers2 ? 1 : -1;
+				}
+
+				// 2. 引脚数量多的优先
+				const pins1 = this.getPinCount(n1);
+				const pins2 = this.getPinCount(n2);
+				if (pins1 !== pins2) {
+					return pins2 - pins1;
+				}
+
+				// 3. 面积大的优先
+				if (n1.m_area !== n2.m_area) {
+					return n2.m_area - n1.m_area;
+				}
+
+				// 4. 线宽大的优先（如果面积相同）
+				return n2.m_radius - n1.m_radius;
+			});
 		}
 
 		//shuffle order of netlist
