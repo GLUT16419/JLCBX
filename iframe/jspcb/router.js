@@ -883,8 +883,8 @@ var js_pcb = js_pcb || {};
 			this.sub_terminal_collision_lines();
 			let visited = new NodeSet();
 
-			// 搜索算法优先级: 双向搜索 -> A* -> BFS
-			let use_bidirectional = true;
+			// 搜索算法优先级: A* -> BFS (双向搜索暂时禁用，待修复)
+			let use_bidirectional = false; // 暂时禁用双向搜索
 			let use_astar = true;
 
 			for (let index = 1; index < this.m_terminals.length; ++index) {
