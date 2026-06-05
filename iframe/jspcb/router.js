@@ -117,6 +117,133 @@ var js_pcb = js_pcb || {};
 			];
 		}
 
+		// 获取PCB复杂度等级
+		getComplexityLevel() {
+			const netCount = this.m_netlist ? this.m_netlist.length : 0;
+			const totalPins = this.m_netlist.reduce((sum, net) => sum + (net.m_terminals ? net.m_terminals.length : 0), 0);
+			const area = this.m_width * this.m_height;
+
+			// 简单板子
+			if (netCount <= 20 && totalPins <= 100) {
+				return 'simple';
+			}
+			// 中等复杂度
+			if (netCount <= 100 && totalPins <= 500) {
+				return 'medium';
+			}
+			// 高复杂度
+			return 'complex';
+		}
+
+		// 获取自适应参数
+		getAdaptiveParams(level) {
+			const params = {
+				clearance: 1.0, // 清除间距倍数
+				viaCost: 1.0, // 过孔代价倍数
+				searchLimit: 1.0, // 搜索范围限制
+			};
+
+			if (level === 'simple') {
+				// 简单板子：宽松设置，追求速度
+				params.clearance = 1.2; // 较大间距，更容易布线
+				params.viaCost = 0.8; // 较低过孔代价，允许更多过孔
+				params.searchLimit = 2.0; // 无限制
+			} else if (level === 'medium') {
+				// 中等复杂度：平衡设置
+				params.clearance = 1.0;
+				params.viaCost = 1.0;
+				params.searchLimit = 1.5;
+			} else {
+				// 复杂板子：严格设置，追求质量
+				params.clearance = 0.9; // 较小间距
+				params.viaCost = 1.3; // 较高过孔代价，减少过孔
+				params.searchLimit = 1.0; // 严格限制
+			}
+
+			return params;
+		}
+
+		// 获取布线阶段参数
+		getRoutingStageParams(stage, level) {
+			const baseParams = this.getAdaptiveParams(level);
+
+			if (stage === 'early') {
+				// 初期：宽松设置，快速完成
+				return {
+					clearance: baseParams.clearance * 1.2,
+					viaCost: baseParams.viaCost * 0.7,
+					searchLimit: baseParams.searchLimit * 2.0,
+				};
+			} else if (stage === 'middle') {
+				// 中期：平衡设置
+				return {
+					clearance: baseParams.clearance,
+					viaCost: baseParams.viaCost,
+					searchLimit: baseParams.searchLimit,
+				};
+			} else {
+				// 后期：严格设置
+				return {
+					clearance: baseParams.clearance * 0.9,
+					viaCost: baseParams.viaCost * 1.2,
+					searchLimit: baseParams.searchLimit * 0.8,
+				};
+			}
+		}
+
+		// 评估布线成功率
+		evaluateSuccessRate() {
+			if (!this.m_netlist || this.m_netlist.length === 0) return 1.0;
+
+			let successCount = 0;
+			for (let net of this.m_netlist) {
+				if (net.m_paths && net.m_paths.length > 0) {
+					successCount++;
+				}
+			}
+
+			return successCount / this.m_netlist.length;
+		}
+
+		// 估算剩余布线难度
+		estimateRemainingDifficulty() {
+			if (!this.m_netlist) return 0;
+
+			let difficulty = 0;
+			for (let net of this.m_netlist) {
+				if (!net.m_paths || net.m_paths.length === 0) {
+					difficulty += net.m_area || 0;
+				}
+			}
+
+			return difficulty;
+		}
+
+		// 智能调整参数
+		adjustParameters(dynamic = true) {
+			const level = this.getComplexityLevel();
+			const successRate = this.evaluateSuccessRate();
+			const remainingDifficulty = this.estimateRemainingDifficulty();
+
+			// 确定布线阶段
+			let stage = 'middle';
+			if (successRate < 0.3) {
+				stage = 'early'; // 初期：需要更宽松的设置
+			} else if (successRate > 0.8 && remainingDifficulty < 1000) {
+				stage = 'late'; // 后期：可以更严格
+			}
+
+			// 获取阶段参数
+			const params = this.getRoutingStageParams(stage, level);
+
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] Complexity: ' + level + ', Stage: ' + stage + ', Success: ' + (successRate * 100).toFixed(1) + '%');
+				console.log('[PCB] Params - Clearance: ' + params.clearance.toFixed(2) + ', ViaCost: ' + params.viaCost.toFixed(2));
+			}
+
+			return params;
+		}
+
 		//add net
 		add_track(track) {
 			let track_radius, via_radius, track_gap, terminals, paths, allowedLayers;
