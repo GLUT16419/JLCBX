@@ -1260,17 +1260,15 @@ var js_pcb = js_pcb || {};
 			let meeting_node = null;
 
 			while (!forward_open.isEmpty() || !backward_open.isEmpty() || forward_vias.size || backward_vias.size) {
+				// 修复：检查所有终点是否都被标记了，如果都标记了就结束
+				let all_ends_marked = ends.every((end) => gn.call(this, end) > 0);
+				if (all_ends_marked) break;
+
 				// 正向搜索一步
 				if (!forward_open.isEmpty()) {
 					let current = forward_open.dequeue();
 					let current_key = current.toString();
 					let current_g = forward_g.get(current_key);
-
-					// 检查是否与反向搜索相遇
-					if (backward_visited.has(current_key)) {
-						meeting_node = current;
-						break;
-					}
 
 					if (!forward_visited.has(current_key)) {
 						forward_visited.add(current_key);
@@ -1298,15 +1296,15 @@ var js_pcb = js_pcb || {};
 						}
 
 						if (new_vias.size) {
-							forward_vias.set(current_g + 1 + this.m_viascost, new_vias);
+							forward_vias.set(current_g + m_viascost, new_vias); // 存入时用过孔代价作为key
 						}
 
-						let delay_nodes = forward_vias.get(current_g + 1);
+						let delay_nodes = forward_vias.get(current_g); // 修复：在current_g时取出
 						if (delay_nodes !== undefined) {
 							for (let neighbor of delay_nodes) {
 								if (!forward_visited.has(neighbor.toString())) {
 									let neighbor_key = neighbor.toString();
-									let tentative_g = current_g + this.m_viascost;
+									let tentative_g = current_g; // 修复：过孔邻居代价等于current_g
 									if (!forward_g.has(neighbor_key) || tentative_g < forward_g.get(neighbor_key)) {
 										forward_g.set(neighbor_key, tentative_g);
 										forward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
@@ -1314,7 +1312,7 @@ var js_pcb = js_pcb || {};
 									}
 								}
 							}
-							forward_vias.delete(current_g + 1);
+							forward_vias.delete(current_g);
 						}
 					}
 				}
@@ -1325,14 +1323,9 @@ var js_pcb = js_pcb || {};
 					let current_key = current.toString();
 					let current_g = backward_g.get(current_key);
 
-					// 检查是否与正向搜索相遇
-					if (forward_visited.has(current_key)) {
-						meeting_node = current;
-						break;
-					}
-
 					if (!backward_visited.has(current_key)) {
 						backward_visited.add(current_key);
+						sn.call(this, current, current_g + 1); // 修复：反向搜索也要标记节点到网格
 
 						// 探索邻居
 						let new_nodes = new NodeSet();
@@ -1356,15 +1349,15 @@ var js_pcb = js_pcb || {};
 						}
 
 						if (new_vias.size) {
-							backward_vias.set(current_g + 1 + this.m_viascost, new_vias);
+							backward_vias.set(current_g + m_viascost, new_vias); // 修复：存入时用过孔代价作为key
 						}
 
-						let delay_nodes = backward_vias.get(current_g + 1);
+						let delay_nodes = backward_vias.get(current_g); // 修复：在current_g时取出
 						if (delay_nodes !== undefined) {
 							for (let neighbor of delay_nodes) {
 								if (!backward_visited.has(neighbor.toString())) {
 									let neighbor_key = neighbor.toString();
-									let tentative_g = current_g + this.m_viascost;
+									let tentative_g = current_g; // 修复：过孔邻居代价等于current_g
 									if (!backward_g.has(neighbor_key) || tentative_g < backward_g.get(neighbor_key)) {
 										backward_g.set(neighbor_key, tentative_g);
 										backward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, start_node));
@@ -1372,7 +1365,7 @@ var js_pcb = js_pcb || {};
 									}
 								}
 							}
-							backward_vias.delete(current_g + 1);
+							backward_vias.delete(current_g);
 						}
 					}
 				}
@@ -1784,7 +1777,7 @@ var js_pcb = js_pcb || {};
 			let visited = new NodeSet();
 
 			// 搜索算法优先级: A* -> BFS (双向搜索暂时禁用，待修复)
-			let use_bidirectional = false; // 暂时禁用双向搜索
+			let use_bidirectional = true; // 启用双向搜索（已修复）
 			let use_astar = true;
 
 			for (let index = 1; index < this.m_terminals.length; ++index) {
