@@ -1,8 +1,8 @@
 {
-	"name": "auto-routing-with-jspcb",
+	"name": "auto-router-plugin",
 	"uuid": "fe81c92e8cae445f9e4e4117058555f5",
-	"displayName": "JS-PCB 自动布线器",
-	"description": "基于 JS-PCB 的嘉立创EDA专业版自动布线扩展",
+	"displayName": "自动布线插件",
+	"description": "基于 JS-PCB 的嘉立创EDA专业版自动布线扩展 - 带折叠面板和调试日志",
 	"version": "1.5.0",
 	"publisher": "JLCEDA <support@lceda.cn>",
 	"engines": {
@@ -14,13 +14,7 @@
 		"url": ""
 	},
 	"categories": "PCB",
-	"keywords": [
-		"SDK",
-		"Autorouter",
-		"PCB",
-		"Routing",
-		"JS-PCB"
-	],
+	"keywords": ["SDK", "Autorouter", "PCB", "Routing", "JS-PCB"],
 	"images": {
 		"logo": "./images/logo.png"
 	},

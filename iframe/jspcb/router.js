@@ -1,37 +1,33 @@
-"use strict";
+'use strict';
 
 var js_pcb = js_pcb || {};
-(function()
-{
-	Array.prototype.shuffle = function()
-	{
-		let i = this.length, j, temp;
+(function () {
+	Array.prototype.shuffle = function () {
+		let i = this.length,
+			j,
+			temp;
 		if (i === 0) return;
-		while (--i)
-		{
+		while (--i) {
 			j = Math.floor(Math.random() * (i + 1));
 			temp = this[i];
 			this[i] = this[j];
 			this[j] = temp;
 		}
-	}
+	};
 
-	Array.prototype.move = function(old_index, new_index)
-	{
+	Array.prototype.move = function (old_index, new_index) {
 		this.splice(new_index, 0, this.splice(old_index, 1)[0]);
-	}
+	};
 
 	const spacial_hash_res = 0.75;
 
 	//aabb of terminals
-	function aabb_terminals(terms, quantization)
-	{
+	function aabb_terminals(terms, quantization) {
 		let minx = (Math.trunc(terms[0][2][0]) / quantization) * quantization;
 		let miny = (Math.trunc(terms[0][2][1]) / quantization) * quantization;
 		let maxx = ((Math.trunc(terms[0][2][0]) + (quantization - 1)) / quantization) * quantization;
 		let maxy = ((Math.trunc(terms[0][2][1]) + (quantization - 1)) / quantization) * quantization;
-		for (let i = 1; i < terms.length; ++i)
-		{
+		for (let i = 1; i < terms.length; ++i) {
 			let tminx = (Math.trunc(terms[i][2][0]) / quantization) * quantization;
 			let tminy = (Math.trunc(terms[i][2][1]) / quantization) * quantization;
 			let tmaxx = ((Math.trunc(terms[i][2][0]) + (quantization - 1)) / quantization) * quantization;
@@ -45,41 +41,33 @@ var js_pcb = js_pcb || {};
 	}
 
 	//set class
-	class NodeSet
-	{
-		constructor(init)
-		{
+	class NodeSet {
+		constructor(init) {
 			if (init === undefined) this._data = new Map();
 			else this._data = new Map(init._data.entries());
 			this.size = this._data.size;
 		}
 
-		add(n)
-		{
+		add(n) {
 			let k = n.toString();
-			if (!this._data.has(k))
-			{
+			if (!this._data.has(k)) {
 				this._data.set(k, n);
 				this.size += 1;
 			}
 		}
 
-		has(n)
-		{
+		has(n) {
 			return this._data.has(n.toString());
 		}
 
-		[Symbol.iterator]()
-		{
+		[Symbol.iterator]() {
 			return this._data.values();
 		}
 	}
 
 	//pcb class
-	class Pcb
-	{
-		constructor(dims, rfvs, rpvs, dfunc, res, verb, quant, viascost)
-		{
+	class Pcb {
+		constructor(dims, rfvs, rpvs, dfunc, res, verb, quant, viascost) {
 			let w, h, d;
 			[w, h, d] = dims;
 			this.m_width = w * res;
@@ -97,100 +85,92 @@ var js_pcb = js_pcb || {};
 			this.m_deform = new Map();
 			this.m_netlist = [];
 			this.m_nodes = new Uint32Array(this.m_stride * this.m_depth);
-			this.m_via_vectors = [[[0, 0, -1], [0, 0, 1]], [[0, 0, -1], [0, 0, 1]]];
+			this.m_via_vectors = [
+				[
+					[0, 0, -1],
+					[0, 0, 1],
+				],
+				[
+					[0, 0, -1],
+					[0, 0, 1],
+				],
+			];
 		}
 
 		//add net
-		add_track(track)
-		{
-			let track_radius, via_radius, track_gap, terminals, paths;
-			[track_radius, via_radius, track_gap, terminals, paths] = track;
-			this.m_netlist.push(new Net(track_radius, via_radius, track_gap, terminals, this));
+		add_track(track) {
+			let track_radius, via_radius, track_gap, terminals, paths, allowedLayers;
+			[track_radius, via_radius, track_gap, terminals, paths, allowedLayers] = track;
+			this.m_netlist.push(new Net(track_radius, via_radius, track_gap, terminals, this, allowedLayers));
 		}
 
 		//remove netlist from board
-		remove_netlist()
-		{
+		remove_netlist() {
 			for (let net of this.m_netlist) net.remove();
 		}
 
 		//attempt to route board within time
-		route(timeout)
-		{
+		route(timeout) {
 			this.remove_netlist();
 			this.unmark_distances();
 			this.reset_areas();
 			this.shuffle_netlist();
-			this.m_netlist.sort(function(n1, n2)
-			{
+			this.m_netlist.sort(function (n1, n2) {
 				if (n1.m_area === n2.m_area) return n1.m_radius - n2.m_radius;
 				return n1.m_area - n2.m_area;
 			});
 			let hoisted_nets = new Set();
 			let index = 0;
-	//		let start_time = std::chrono::high_resolution_clock::now();
-			while (index < this.m_netlist.length)
-			{
+			//		let start_time = std::chrono::high_resolution_clock::now();
+			while (index < this.m_netlist.length) {
 				if (this.m_netlist[index].route()) index++;
-				else
-				{
-					if (index === 0)
-					{
+				else {
+					if (index === 0) {
 						this.reset_areas();
 						this.shuffle_netlist();
-						this.m_netlist.sort(function(n1, n2)
-						{
+						this.m_netlist.sort(function (n1, n2) {
 							if (n1.m_area === n2.m_area) return n1.m_radius - n2.m_radius;
 							return n1.m_area - n2.m_area;
 						});
 						hoisted_nets.clear();
-					}
-					else
-					{
+					} else {
 						let pos = this.hoist_net(index);
-						if ((pos === index) || (hoisted_nets.has(this.m_netlist[pos])))
-						{
-							if (pos !== 0)
-							{
-								this.m_netlist[pos].m_area = this.m_netlist[pos-1].m_area;
+						if (pos === index || hoisted_nets.has(this.m_netlist[pos])) {
+							if (pos !== 0) {
+								this.m_netlist[pos].m_area = this.m_netlist[pos - 1].m_area;
 								pos = this.hoist_net(pos);
 							}
 							hoisted_nets.delete(this.m_netlist[pos]);
-						}
-						else hoisted_nets.add(this.m_netlist[pos]);
-						while (index > pos)
-						{
+						} else hoisted_nets.add(this.m_netlist[pos]);
+						while (index > pos) {
 							this.m_netlist[index].remove();
 							this.m_netlist[index].shuffle_topology();
 							index--;
 						}
 					}
 				}
-	//			let end_time = std::chrono::high_resolution_clock::now();
-	//			std::chrono::duration<float> elapsed = end_time - start_time;
-	//			if (elapsed.count() >= timeout) return false;
+				//			let end_time = std::chrono::high_resolution_clock::now();
+				//			std::chrono::duration<float> elapsed = end_time - start_time;
+				//			if (elapsed.count() >= timeout) return false;
 				if (this.m_verbosity >= 1) postMessage(this.output_pcb());
 			}
 			return true;
 		}
 
 		//cost of board in complexity terms
-		cost()
-		{
+		cost() {
 			let sum = 0;
 			for (let net of this.m_netlist) for (let path of net.m_paths) sum += path.length;
 			return sum;
 		}
 
 		//increase area quantization
-		increase_quantization()
-		{
+		increase_quantization() {
 			this.m_quantization++;
 		}
 
 		//output netlist and paths of board for viewer app
-		output_pcb()
-		{
+		output_pcb() {
 			let scale = 1.0 / this.m_resolution;
 			let tracks = [];
 			for (let net of this.m_netlist) tracks.push(net.output_net());
@@ -198,31 +178,26 @@ var js_pcb = js_pcb || {};
 		}
 
 		//convert grid node to space node
-		grid_to_space_point(n)
-		{
+		grid_to_space_point(n) {
 			let p = this.m_deform.get(n.toString());
-			if (p !== undefined)
-			{
+			if (p !== undefined) {
 				return p;
 			}
 			return n;
 		}
 
 		//set grid node to value
-		set_node(n, value)
-		{
-			this.m_nodes[(this.m_stride*n[2])+(n[1]*this.m_width)+n[0]] = value;
+		set_node(n, value) {
+			this.m_nodes[this.m_stride * n[2] + n[1] * this.m_width + n[0]] = value;
 		}
 
 		//get grid node value
-		get_node(n)
-		{
-			return this.m_nodes[(this.m_stride*n[2])+(n[1]*this.m_width)+n[0]];
+		get_node(n) {
+			return this.m_nodes[this.m_stride * n[2] + n[1] * this.m_width + n[0]];
 		}
 
 		//generate all grid points surrounding node, that are not value 0
-		all_marked(vec, n)
-		{
+		all_marked(vec, n) {
 			let w = this.m_width;
 			let h = this.m_height;
 			let d = this.m_depth;
@@ -230,15 +205,11 @@ var js_pcb = js_pcb || {};
 			let sort_nodes = [];
 			let x, y, z;
 			[x, y, z] = n;
-			for (let v of vec[z%2])
-			{
+			for (let v of vec[z % 2]) {
 				let nx, ny, nz;
 				[nx, ny, nz] = v;
-				nx += x, ny += y, nz += z;
-				if ((0 <= nx) && (nx < w)
-				 	&& (0 <= ny) && (ny < h)
-					&& (0 <= nz) && (nz < d))
-				{
+				(nx += x), (ny += y), (nz += z);
+				if (0 <= nx && nx < w && 0 <= ny && ny < h && 0 <= nz && nz < d) {
 					let n = [nx, ny, nz];
 					let mark = gn.call(this, n);
 					if (mark !== 0) sort_nodes.push([mark, n]);
@@ -248,8 +219,7 @@ var js_pcb = js_pcb || {};
 		}
 
 		//generate all grid points surrounding node, that are value 0
-		all_not_marked(vec, n)
-		{
+		all_not_marked(vec, n) {
 			let w = this.m_width;
 			let h = this.m_height;
 			let d = this.m_depth;
@@ -257,15 +227,11 @@ var js_pcb = js_pcb || {};
 			let nodes = [];
 			let x, y, z;
 			[x, y, z] = n;
-			for (let v of vec[z%2])
-			{
+			for (let v of vec[z % 2]) {
 				let nx, ny, nz;
 				[nx, ny, nz] = v;
-				nx += x, ny += y, nz += z;
-				if ((0 <= nx) && (nx < w)
-				 	&& (0 <= ny) && (ny < h)
-					&& (0 <= nz) && (nz < d))
-				{
+				(nx += x), (ny += y), (nz += z);
+				if (0 <= nx && nx < w && 0 <= ny && ny < h && 0 <= nz && nz < d) {
 					let n = [nx, ny, nz];
 					if (gn.call(this, n) === 0) nodes.push(n);
 				}
@@ -274,31 +240,31 @@ var js_pcb = js_pcb || {};
 		}
 
 		//generate all grid points surrounding node sorted
-		all_nearer_sorted(vec, n, dfunc)
-		{
+		all_nearer_sorted(vec, n, dfunc) {
 			let gsp = this.grid_to_space_point;
 			let gp = gsp.call(this, n);
 			let distance = this.get_node(n);
-			let marked_nodes = this.all_marked(vec, n).filter((mn) =>
-			{
-				if ((distance - mn[0]) <= 0) return false;
+			let marked_nodes = this.all_marked(vec, n).filter((mn) => {
+				if (distance - mn[0] <= 0) return false;
 				mn[0] = dfunc(gsp.call(this, mn[1]), gp);
 				return true;
 			});
-			marked_nodes.sort(function(s1, s2) { return s1[0] - s2[0]; });
-			return marked_nodes.map(function(mn) { return mn[1]; });
+			marked_nodes.sort(function (s1, s2) {
+				return s1[0] - s2[0];
+			});
+			return marked_nodes.map(function (mn) {
+				return mn[1];
+			});
 		}
 
 		//generate all grid points surrounding node that are not shorting with an existing track
-		all_not_shorting(gather, n, radius, gap)
-		{
+		all_not_shorting(gather, n, radius, gap) {
 			let gsp = this.grid_to_space_point;
 			let layers = this.m_layers;
 			let hit_line = this.m_layers.hit_line;
 			let nodes = [];
 			let np = gsp.call(this, n);
-			for (let new_node of gather)
-			{
+			for (let new_node of gather) {
 				let nnp = gsp.call(this, new_node);
 				if (!hit_line.call(layers, np, nnp, radius, gap)) nodes.push(new_node);
 			}
@@ -306,8 +272,7 @@ var js_pcb = js_pcb || {};
 		}
 
 		//flood fill distances from starts till ends covered
-		mark_distances(vec, radius, via, gap, starts, ends)
-		{
+		mark_distances(vec, radius, via, gap, starts, ends, allowedLayers = null) {
 			let gn = this.get_node;
 			let sn = this.set_node;
 			let anm = this.all_not_marked;
@@ -316,30 +281,36 @@ var js_pcb = js_pcb || {};
 			let distance = 1;
 			let frontier = new NodeSet(starts);
 			let vias_nodes = new Map();
-			while (frontier.size || vias_nodes.size)
-			{
+
+			// 过滤节点函数：只允许在allowedLayers中的层
+			const filterNode = (node) => {
+				if (!allowedLayers || allowedLayers.length === 0) return true;
+				return allowedLayers.includes(node[2]);
+			};
+
+			while (frontier.size || vias_nodes.size) {
 				for (let node of frontier) sn.call(this, node, distance);
-				if (ends.every((node) => { return gn.call(this, node); })) break;
+				if (
+					ends.every((node) => {
+						return gn.call(this, node);
+					})
+				)
+					break;
 				let new_nodes = new NodeSet();
-				for (let node of frontier)
-				{
-					for (let new_node of ans.call(this, anm.call(this, vec, node), node, radius, gap))
-					{
-						new_nodes.add(new_node);
+				for (let node of frontier) {
+					for (let new_node of ans.call(this, anm.call(this, vec, node), node, radius, gap)) {
+						if (filterNode(new_node)) new_nodes.add(new_node);
 					}
 				}
 				let new_vias_nodes = new NodeSet();
-				for (let node of frontier)
-				{
-					for (let new_node of ans.call(this, anm.call(this, via_vectors, node), node, via, gap))
-					{
-						new_vias_nodes.add(new_node);
+				for (let node of frontier) {
+					for (let new_node of ans.call(this, anm.call(this, via_vectors, node), node, via, gap)) {
+						if (filterNode(new_node)) new_vias_nodes.add(new_node);
 					}
 				}
-				if (new_vias_nodes.size) vias_nodes.set(distance+this.m_viascost, new_vias_nodes);
+				if (new_vias_nodes.size) vias_nodes.set(distance + this.m_viascost, new_vias_nodes);
 				let delay_nodes = vias_nodes.get(distance);
-				if (delay_nodes !== undefined)
-				{
+				if (delay_nodes !== undefined) {
 					for (let node of delay_nodes) if (gn.call(this, node) === 0) new_nodes.add(node);
 					vias_nodes.delete(distance);
 				}
@@ -349,37 +320,30 @@ var js_pcb = js_pcb || {};
 		}
 
 		//set all grid values back to 0
-		unmark_distances()
-		{
+		unmark_distances() {
 			this.m_nodes.fill(0);
 		}
 
 		//reset areas
-		reset_areas()
-		{
-			for (let net of this.m_netlist)
-			{
+		reset_areas() {
+			for (let net of this.m_netlist) {
 				[net.m_area, net.m_bbox] = aabb_terminals(net.m_terminals, this.m_quantization);
 			}
 		}
 
 		//shuffle order of netlist
-		shuffle_netlist()
-		{
+		shuffle_netlist() {
 			this.m_netlist.shuffle();
 			for (let net of this.m_netlist) net.shuffle_topology();
 		}
 
 		//move net to top of area group
-		hoist_net(n)
-		{
+		hoist_net(n) {
 			let i = 0;
-			if (n != 0)
-			{
+			if (n != 0) {
 				for (i = n; i >= 0; --i) if (this.m_netlist[i].m_area < this.m_netlist[n].m_area) break;
 				i++;
-				if (n != i)
-				{
+				if (n != i) {
 					this.m_netlist.move(n, i);
 				}
 			}
@@ -388,16 +352,13 @@ var js_pcb = js_pcb || {};
 	}
 
 	//scale terminals for resolution of grid
-	function scale_terminals(terms, res)
-	{
-		for (let term of terms)
-		{
+	function scale_terminals(terms, res) {
+		for (let term of terms) {
 			term[0] *= res;
 			term[1] *= res;
 			term[2][0] *= res;
 			term[2][1] *= res;
-			for (let p of term[3])
-			{
+			for (let p of term[3]) {
 				p[0] *= res;
 				p[1] *= res;
 			}
@@ -405,23 +366,26 @@ var js_pcb = js_pcb || {};
 	}
 
 	//net methods
-	class Net
-	{
-		constructor(radius, via, gap, terms, pcb)
-		{
+	class Net {
+		constructor(radius, via, gap, terms, pcb, allowedLayers = null) {
 			this.m_pcb = pcb;
 			this.m_radius = radius * pcb.m_resolution;
 			this.m_via = via * pcb.m_resolution;
 			this.m_gap = gap * pcb.m_resolution;
 			this.m_terminals = terms;
 			this.m_paths = [];
+			this.m_allowedLayers = allowedLayers;
 			scale_terminals(this.m_terminals, pcb.m_resolution);
 			[this.m_area, this.m_bbox] = aabb_terminals(this.m_terminals, pcb.m_quantization);
 			this.remove();
-			for (let term of this.m_terminals)
-			{
-				for (let z = 0; z < pcb.m_depth; ++z)
-				{
+			for (let term of this.m_terminals) {
+				let zRange = [];
+				if (this.m_allowedLayers && this.m_allowedLayers.length > 0) {
+					zRange = this.m_allowedLayers;
+				} else {
+					for (let z = 0; z < pcb.m_depth; ++z) zRange.push(z);
+				}
+				for (let z of zRange) {
 					let p = [Math.trunc(term[2][0] + 0.5), Math.trunc(term[2][1] + 0.5), z];
 					let sp = [term[2][0], term[2][1], z];
 					pcb.m_deform.set(p.toString(), sp);
@@ -430,27 +394,20 @@ var js_pcb = js_pcb || {};
 		}
 
 		//randomize order of terminals
-		shuffle_topology()
-		{
+		shuffle_topology() {
 			this.m_terminals.shuffle();
 		}
 
 		//add terminal entries to spacial cache
-		add_terminal_collision_lines()
-		{
-			for (let node of this.m_terminals)
-			{
+		add_terminal_collision_lines() {
+			for (let node of this.m_terminals) {
 				let r, g, x, y, shape;
 				[r, g, [x, y, ,], shape] = node;
-				if (!shape.length)
-					this.m_pcb.m_layers.add_line([x, y, 0], [x, y, this.m_pcb.m_depth - 1], r, g);
-				else
-				{
-					for (let z = 0; z < this.m_pcb.m_depth; ++z)
-					{
+				if (!shape.length) this.m_pcb.m_layers.add_line([x, y, 0], [x, y, this.m_pcb.m_depth - 1], r, g);
+				else {
+					for (let z = 0; z < this.m_pcb.m_depth; ++z) {
 						let p1 = [x + shape[0][0], y + shape[0][1], z];
-						for (let i = 1; i < shape.length; ++i)
-						{
+						for (let i = 1; i < shape.length; ++i) {
 							let p0 = p1;
 							p1 = [x + shape[i][0], y + shape[i][1], z];
 							this.m_pcb.m_layers.add_line(p0, p1, r, g);
@@ -461,21 +418,15 @@ var js_pcb = js_pcb || {};
 		}
 
 		//remove terminal entries from spacial cache
-		sub_terminal_collision_lines()
-		{
-			for (let node of this.m_terminals)
-			{
+		sub_terminal_collision_lines() {
+			for (let node of this.m_terminals) {
 				let r, g, x, y, shape;
 				[r, g, [x, y, ,], shape] = node;
-				if (!shape.length)
-					this.m_pcb.m_layers.sub_line([x, y, 0], [x, y, this.m_pcb.m_depth - 1], r, g);
-				else
-				{
-					for (let z = 0; z < this.m_pcb.m_depth; ++z)
-					{
+				if (!shape.length) this.m_pcb.m_layers.sub_line([x, y, 0], [x, y, this.m_pcb.m_depth - 1], r, g);
+				else {
+					for (let z = 0; z < this.m_pcb.m_depth; ++z) {
 						let p1 = [x + shape[0][0], y + shape[0][1], z];
-						for (let i = 1; i < shape.length; ++i)
-						{
+						for (let i = 1; i < shape.length; ++i) {
 							let p0 = p1;
 							p1 = [x + shape[i][0], y + shape[i][1], z];
 							this.m_pcb.m_layers.sub_line(p0, p1, r, g);
@@ -486,40 +437,33 @@ var js_pcb = js_pcb || {};
 		}
 
 		//add paths entries to spacial cache
-		add_paths_collision_lines()
-		{
-			for (let path of this.m_paths)
-			{
+		add_paths_collision_lines() {
+			for (let path of this.m_paths) {
 				let p1 = this.m_pcb.grid_to_space_point(path[0]);
-				for (let i = 1; i < path.length; ++i)
-				{
+				for (let i = 1; i < path.length; ++i) {
 					let p0 = p1;
 					p1 = this.m_pcb.grid_to_space_point(path[i]);
-					if (path[i-1][2] !== path[i][2]) this.m_pcb.m_layers.add_line(p0, p1, this.m_via, this.m_gap);
+					if (path[i - 1][2] !== path[i][2]) this.m_pcb.m_layers.add_line(p0, p1, this.m_via, this.m_gap);
 					else this.m_pcb.m_layers.add_line(p0, p1, this.m_radius, this.m_gap);
 				}
 			}
 		}
 
 		//remove paths entries from spacial cache
-		sub_paths_collision_lines()
-		{
-			for (let path of this.m_paths)
-			{
+		sub_paths_collision_lines() {
+			for (let path of this.m_paths) {
 				let p1 = this.m_pcb.grid_to_space_point(path[0]);
-				for (let i = 1; i < path.length; ++i)
-				{
+				for (let i = 1; i < path.length; ++i) {
 					let p0 = p1;
 					p1 = this.m_pcb.grid_to_space_point(path[i]);
-					if (path[i-1][2] !== path[i][2]) this.m_pcb.m_layers.sub_line(p0, p1, this.m_via, this.m_gap);
+					if (path[i - 1][2] !== path[i][2]) this.m_pcb.m_layers.sub_line(p0, p1, this.m_via, this.m_gap);
 					else this.m_pcb.m_layers.sub_line(p0, p1, this.m_radius, this.m_gap);
 				}
 			}
 		}
 
 		//remove net entries from spacial grid
-		remove()
-		{
+		remove() {
 			this.sub_paths_collision_lines();
 			this.sub_terminal_collision_lines();
 			this.m_paths = [];
@@ -527,57 +471,63 @@ var js_pcb = js_pcb || {};
 		}
 
 		//remove redundant points from paths
-		optimise_paths(paths)
-		{
+		optimise_paths(paths) {
 			let opt_paths = [];
-			for (let path of paths)
-			{
+			for (let path of paths) {
 				let opt_path = [];
 				let d = [0.0, 0.0, 0.0];
 				let p1 = this.m_pcb.grid_to_space_point(path[0]);
-				for (let i = 1; i < path.length; ++i)
-				{
+				for (let i = 1; i < path.length; ++i) {
 					let p0 = p1;
 					p1 = this.m_pcb.grid_to_space_point(path[i]);
 					let d1 = js_pcb.norm_3d(js_pcb.sub_3d(p1, p0));
-					if (!js_pcb.equal_3d(d1, d))
-					{
-						opt_path.push(path[i-1]);
+					if (!js_pcb.equal_3d(d1, d)) {
+						opt_path.push(path[i - 1]);
 						d = d1;
 					}
 				}
-				opt_path.push(path[path.length-1]);
+				opt_path.push(path[path.length - 1]);
 				opt_paths.push(opt_path);
 			}
 			return opt_paths;
 		}
 
 		//backtrack path from ends to starts
-		backtrack_path(visited, end_node, radius, via, gap)
-		{
+		backtrack_path(visited, end_node, radius, via, gap, allowedLayers = null) {
 			let via_vectors = this.m_pcb.m_via_vectors;
 			let path = [];
 			let path_node = end_node;
-			for (;;)
-			{
+
+			// 过滤节点函数：只允许在allowedLayers中的层
+			const filterNode = (node) => {
+				if (!allowedLayers || allowedLayers.length === 0) return true;
+				return allowedLayers.includes(node[2]);
+			};
+
+			for (;;) {
 				path.push(path_node);
 				let nearer_nodes = [];
 				for (let node of this.m_pcb.all_not_shorting(
 					this.m_pcb.all_nearer_sorted(this.m_pcb.m_routing_path_vectors, path_node, this.m_pcb.m_dfunc),
-					path_node, radius, gap))
-				{
-					nearer_nodes.push(node);
+					path_node,
+					radius,
+					gap,
+				)) {
+					if (filterNode(node)) nearer_nodes.push(node);
 				}
 				for (let node of this.m_pcb.all_not_shorting(
 					this.m_pcb.all_nearer_sorted(via_vectors, path_node, this.m_pcb.m_dfunc),
-					path_node, via, gap))
-				{
-					nearer_nodes.push(node);
+					path_node,
+					via,
+					gap,
+				)) {
+					if (filterNode(node)) nearer_nodes.push(node);
 				}
 				if (!nearer_nodes.length) return [[], false];
-				let search = nearer_nodes.find(function(node) { return visited.has(node); });
-				if (search !== undefined)
-				{
+				let search = nearer_nodes.find(function (node) {
+					return visited.has(node);
+				});
+				if (search !== undefined) {
 					//found existing track
 					path.push(search);
 					return [path, true];
@@ -587,39 +537,51 @@ var js_pcb = js_pcb || {};
 		}
 
 		//attempt to route this net on the current boards state
-		route()
-		{
+		route() {
 			//check for unused terminals track
 			if (this.m_radius === 0.0) return true;
 			this.m_paths = [];
 			this.sub_terminal_collision_lines();
 			let visited = new NodeSet();
-			for (let index = 1; index < this.m_terminals.length; ++index)
-			{
+			for (let index = 1; index < this.m_terminals.length; ++index) {
 				let ends = [];
-				for (let z = 0; z < this.m_pcb.m_depth; ++z)
-				{
-					let x = Math.trunc(this.m_terminals[index][2][0]+0.5);
-					let y = Math.trunc(this.m_terminals[index][2][1]+0.5);
+				let zRange = [];
+				if (this.m_allowedLayers && this.m_allowedLayers.length > 0) {
+					zRange = this.m_allowedLayers;
+				} else {
+					for (let z = 0; z < this.m_pcb.m_depth; ++z) zRange.push(z);
+				}
+				for (let z of zRange) {
+					let x = Math.trunc(this.m_terminals[index][2][0] + 0.5);
+					let y = Math.trunc(this.m_terminals[index][2][1] + 0.5);
 					ends.push([x, y, z]);
 				}
-				let search = ends.find(function(node) { return visited.has(node); });
+				let search = ends.find(function (node) {
+					return visited.has(node);
+				});
 				if (search !== undefined) continue;
-				for (let z = 0; z < this.m_pcb.m_depth; ++z)
-				{
-					let x = Math.trunc(this.m_terminals[index-1][2][0]+0.5);
-					let y = Math.trunc(this.m_terminals[index-1][2][1]+0.5);
+				for (let z of zRange) {
+					let x = Math.trunc(this.m_terminals[index - 1][2][0] + 0.5);
+					let y = Math.trunc(this.m_terminals[index - 1][2][1] + 0.5);
 					visited.add([x, y, z]);
 				}
-				this.m_pcb.mark_distances(this.m_pcb.m_routing_flood_vectors, this.m_radius, this.m_via, this.m_gap,
-					 						visited, ends);
+				this.m_pcb.mark_distances(
+					this.m_pcb.m_routing_flood_vectors,
+					this.m_radius,
+					this.m_via,
+					this.m_gap,
+					visited,
+					ends,
+					this.m_allowedLayers,
+				);
 				let sorted_ends = [];
 				for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
-				sorted_ends.sort(function(s1, s2) { return s1[0] - s2[0]; });
-				let result = this.backtrack_path(visited, sorted_ends[0][1], this.m_radius, this.m_via, this.m_gap);
+				sorted_ends.sort(function (s1, s2) {
+					return s1[0] - s2[0];
+				});
+				let result = this.backtrack_path(visited, sorted_ends[0][1], this.m_radius, this.m_via, this.m_gap, this.m_allowedLayers);
 				this.m_pcb.unmark_distances();
-				if (!result[1])
-				{
+				if (!result[1]) {
 					this.remove();
 					return false;
 				}
@@ -633,28 +595,34 @@ var js_pcb = js_pcb || {};
 		}
 
 		//output net, terminals and paths, for viewer app
-		output_net()
-		{
+		output_net() {
 			let pcb = this.m_pcb;
 			let gsp = this.m_pcb.grid_to_space_point;
 			let scale = 1.0 / this.m_pcb.m_resolution;
 			let track = [];
-			track.push(this.m_radius*scale);
-			track.push(this.m_via*scale);
-			track.push(this.m_gap*scale);
-			track.push(this.m_terminals.map(function(t)
-			{
-				return [t[0]*scale, t[1]*scale, [t[2][0]*scale, t[2][1]*scale, t[2][2]],
-					t[3].map(function(n) { return [n[0]*scale, n[1]*scale]; })];
-			}));
-			track.push(this.m_paths.map(function(path)
-			{
-				return path.map(function(n)
-				{
-					let p = gsp.call(pcb, n);
-					return [p[0]*scale, p[1]*scale, p[2]];
-				});
-			}));
+			track.push(this.m_radius * scale);
+			track.push(this.m_via * scale);
+			track.push(this.m_gap * scale);
+			track.push(
+				this.m_terminals.map(function (t) {
+					return [
+						t[0] * scale,
+						t[1] * scale,
+						[t[2][0] * scale, t[2][1] * scale, t[2][2]],
+						t[3].map(function (n) {
+							return [n[0] * scale, n[1] * scale];
+						}),
+					];
+				}),
+			);
+			track.push(
+				this.m_paths.map(function (path) {
+					return path.map(function (n) {
+						let p = gsp.call(pcb, n);
+						return [p[0] * scale, p[1] * scale, p[2]];
+					});
+				}),
+			);
 			return track;
 		}
 	}

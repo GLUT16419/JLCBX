@@ -1,573 +1,1409 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-	<meta charset="utf-8">
-	<title>JS-PCB 自动布线器 v1.5</title>
-	<script type="text/javascript" src="/iframe/jspcb/d3.v4.min.js"></script>
-	<script type="text/javascript" src="/iframe/jspcb/mymath.js"></script>
-	<script type="text/javascript" src="/iframe/jspcb/view.js"></script>
-	<script type="text/javascript" src="/iframe/jspcb/dsn2pcb.js"></script>
-	<script type="text/javascript" src="/iframe/jspcb/jlc2kicad.js"></script>
-	<script type="text/javascript" src="/iframe/jspcb/pcb2ses.js"></script>
-	<style type="text/css">
-		:root {
-			/* Dark Theme Default from theme.json */
-			--background: oklch(0.2891 0 0);
-			--foreground: oklch(0.8945 0 0);
-			--card: oklch(0.3211 0 0);
-			--card-foreground: oklch(0.8945 0 0);
-			--popover: oklch(0.3211 0 0);
-			--popover-foreground: oklch(0.8945 0 0);
-			--primary: oklch(0.7572 0 0);
-			--primary-foreground: oklch(0.2891 0 0);
-			--secondary: oklch(0.4676 0 0);
-			--secondary-foreground: oklch(0.8078 0 0);
-			--muted: oklch(0.3904 0 0);
-			--muted-foreground: oklch(0.7058 0 0);
-			--accent: oklch(0.9067 0 0);
-			--accent-foreground: oklch(0.3211 0 0);
-			--destructive: oklch(0.7915 0.0491 18.2410);
-			--destructive-foreground: oklch(0.2891 0 0);
-			--border: oklch(0.4276 0 0);
-			--input: oklch(0.3211 0 0);
-			--ring: oklch(0.8078 0 0);
-			--chart-1: oklch(0.9521 0 0);
-			--chart-2: oklch(0.8576 0 0);
-			--chart-3: oklch(0.7572 0 0);
-			--chart-4: oklch(0.6534 0 0);
-			--chart-5: oklch(0.5452 0 0);
-			--sidebar: oklch(0.2478 0 0);
-			--sidebar-foreground: oklch(0.8945 0 0);
-			--sidebar-primary: oklch(0.7572 0 0);
-			--sidebar-primary-foreground: oklch(0.2478 0 0);
-			--sidebar-accent: oklch(0.9067 0 0);
-			--sidebar-accent-foreground: oklch(0.3211 0 0);
-			--sidebar-border: oklch(0.4276 0 0);
-			--sidebar-ring: oklch(0.8078 0 0);
-			
-			--radius: 0.625rem;
-			--font-sans: "Inter", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
-			--font-mono: "Fira Code", "Consolas", monospace;
-		}
+	<head>
+		<meta charset="utf-8" />
+		<title>JS-PCB 自动布线器 v1.5</title>
+		<script type="text/javascript" src="/iframe/jspcb/d3.v4.min.js"></script>
+		<script type="text/javascript" src="/iframe/jspcb/mymath.js"></script>
+		<script type="text/javascript" src="/iframe/jspcb/view.js"></script>
+		<script type="text/javascript" src="/iframe/jspcb/dsn2pcb.js"></script>
+		<script type="text/javascript" src="/iframe/jspcb/jlc2kicad.js"></script>
+		<script type="text/javascript" src="/iframe/jspcb/pcb2ses.js"></script>
+		<style type="text/css">
+			:root {
+				/* Dark Theme Default from theme.json */
+				--background: oklch(0.2891 0 0);
+				--foreground: oklch(0.8945 0 0);
+				--card: oklch(0.3211 0 0);
+				--card-foreground: oklch(0.8945 0 0);
+				--popover: oklch(0.3211 0 0);
+				--popover-foreground: oklch(0.8945 0 0);
+				--primary: oklch(0.7572 0 0);
+				--primary-foreground: oklch(0.2891 0 0);
+				--secondary: oklch(0.4676 0 0);
+				--secondary-foreground: oklch(0.8078 0 0);
+				--muted: oklch(0.3904 0 0);
+				--muted-foreground: oklch(0.7058 0 0);
+				--accent: oklch(0.9067 0 0);
+				--accent-foreground: oklch(0.3211 0 0);
+				--destructive: oklch(0.7915 0.0491 18.241);
+				--destructive-foreground: oklch(0.2891 0 0);
+				--border: oklch(0.4276 0 0);
+				--input: oklch(0.3211 0 0);
+				--ring: oklch(0.8078 0 0);
+				--chart-1: oklch(0.9521 0 0);
+				--chart-2: oklch(0.8576 0 0);
+				--chart-3: oklch(0.7572 0 0);
+				--chart-4: oklch(0.6534 0 0);
+				--chart-5: oklch(0.5452 0 0);
+				--sidebar: oklch(0.2478 0 0);
+				--sidebar-foreground: oklch(0.8945 0 0);
+				--sidebar-primary: oklch(0.7572 0 0);
+				--sidebar-primary-foreground: oklch(0.2478 0 0);
+				--sidebar-accent: oklch(0.9067 0 0);
+				--sidebar-accent-foreground: oklch(0.3211 0 0);
+				--sidebar-border: oklch(0.4276 0 0);
+				--sidebar-ring: oklch(0.8078 0 0);
 
-		* { box-sizing: border-box; }
-		
-		body {
-			font-family: var(--font-sans);
-			margin: 0;
-			padding: 0;
-			background-color: var(--background);
-			height: 100vh;
-			overflow: hidden;
-			display: flex;
-			color: var(--foreground);
-			font-size: 13px;
-			line-height: 1.5;
-		}
-		
-		/* Sidebar Styles */
-		.sidebar {
-			width: 280px;
-			background-color: var(--sidebar);
-			border-right: 1px solid var(--sidebar-border);
-			padding: 0;
-			display: flex;
-			flex-direction: column;
-			overflow-y: hidden;
-			z-index: 10;
-		}
+				--radius: 0.625rem;
+				--font-sans: 'Inter', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+				--font-mono: 'Fira Code', 'Consolas', monospace;
+			}
 
-		.sidebar-content {
-			flex: 1;
-			overflow-y: auto;
-			padding: 16px;
-			display: flex;
-			flex-direction: column;
-			gap: 20px;
-		}
-		
-		.sidebar-content::-webkit-scrollbar {
-			width: 6px;
-		}
-		.sidebar-content::-webkit-scrollbar-thumb {
-			background: var(--sidebar-border);
-			border-radius: 3px;
-		}
-		
-		.panel {
-			background: transparent;
-			padding-bottom: 5px;
-		}
-		
-		h2 {
-			font-size: 12px;
-			font-weight: 600;
-			color: var(--sidebar-foreground);
-			text-transform: uppercase;
-			letter-spacing: 0.05em;
-			margin: 0 0 12px 0;
-			padding-bottom: 8px;
-			border-bottom: 1px solid var(--sidebar-border);
-			opacity: 0.8;
-		}
-		
-		/* Form Controls */
-		.control-group {
-			margin-bottom: 12px;
-			position: relative;
-		}
+			* {
+				box-sizing: border-box;
+			}
 
-		.control-header {
-			display: flex;
-			justify-content: space-between;
-			align-items: center;
-			margin-bottom: 4px;
-		}
-		
-		.control-group label {
-			font-size: 13px;
-			color: var(--sidebar-foreground);
-			font-weight: 400;
-		}
-		
-		.control-desc {
-			font-size: 11px;
-			color: var(--muted-foreground);
-			line-height: 1.4;
-		}
+			body {
+				font-family: var(--font-sans);
+				margin: 0;
+				padding: 0;
+				background-color: var(--background);
+				height: 100vh;
+				overflow: hidden;
+				display: flex;
+				color: var(--foreground);
+				font-size: 13px;
+				line-height: 1.5;
+			}
 
-		.control-group input[type="number"] {
-			width: 70px;
-			padding: 4px 8px;
-			border: 1px solid var(--sidebar-border);
-			border-radius: 4px;
-			outline: none;
-			background-color: var(--input);
-			color: var(--foreground);
-			font-family: var(--font-mono);
-			font-size: 12px;
-			transition: all 0.2s;
-			text-align: right;
-			height: 28px;
-		}
-		
-		.control-group input[type="number"]:focus {
-			border-color: var(--sidebar-ring);
-			box-shadow: 0 0 0 1px var(--sidebar-ring);
-		}
+			/* Sidebar Styles */
+			.sidebar {
+				width: 320px;
+				background-color: var(--sidebar);
+				border-right: 1px solid var(--sidebar-border);
+				padding: 0;
+				display: flex;
+				flex-direction: column;
+				overflow-y: hidden;
+				z-index: 10;
+			}
 
-		/* File Input */
-		.file-input-wrapper {
-			margin-bottom: 15px;
-			padding: 20px;
-			border: 1px dashed var(--sidebar-border);
-			border-radius: var(--radius);
-			text-align: center;
-			transition: all 0.2s;
-			background: rgba(255, 255, 255, 0.02);
-			cursor: pointer;
-		}
+			.sidebar-content {
+				flex: 1;
+				overflow-y: auto;
+				padding: 16px;
+				display: flex;
+				flex-direction: column;
+				gap: 16px;
+			}
 
-		.file-input-wrapper:hover {
-			border-color: var(--sidebar-primary);
-			background: rgba(255, 255, 255, 0.05);
-		}
+			.sidebar-content::-webkit-scrollbar {
+				width: 6px;
+			}
+			.sidebar-content::-webkit-scrollbar-thumb {
+				background: var(--sidebar-border);
+				border-radius: 3px;
+			}
 
-		.file-input-wrapper input {
-			width: 100%;
-			font-size: 11px;
-			color: var(--muted-foreground);
-		}
-		
-		/* Buttons */
-		.btn-group {
-			display: flex;
-			gap: 10px;
-			margin-top: 16px;
-		}
-		
-		button {
-			flex: 1;
-			padding: 8px 16px;
-			font-size: 13px;
-			font-weight: 500;
-			cursor: pointer;
-			border: 1px solid transparent;
-			border-radius: 4px;
-			transition: all 0.2s ease;
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-			height: 32px;
-		}
-		
-		button:active {
-			transform: translateY(1px);
-		}
-		
-		#go {
-			background-color: var(--sidebar-primary);
-			color: var(--sidebar-primary-foreground);
-		}
-		
-		#go:hover {
-			opacity: 0.9;
-		}
-		
-		#export_ses {
-			background-color: transparent;
-			border: 1px solid var(--sidebar-border);
-			color: var(--sidebar-foreground);
-		}
-		
-		#export_ses:hover:not(:disabled) {
-			background-color: var(--sidebar-accent);
-			color: var(--sidebar-accent-foreground);
-		}
+			.panel {
+				background: transparent;
+				padding-bottom: 5px;
+			}
 
-		#load_dsn_eda {
-			width: 100%;
-			background-color: var(--secondary);
-			color: var(--secondary-foreground);
-		}
-		
-		#load_dsn_eda:hover {
-			opacity: 0.9;
-		}
-		
-		button:disabled {
-			background-color: var(--muted) !important;
-			color: var(--muted-foreground) !important;
-			cursor: not-allowed;
-			border-color: transparent !important;
-		}
+			/* Collapsible Panel Header */
+			.panel-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				cursor: pointer;
+				user-select: none;
+				margin-bottom: 12px;
+				padding-bottom: 8px;
+				border-bottom: 1px solid var(--sidebar-border);
+			}
 
-		.history-list {
-			display: flex;
-			flex-direction: column;
-			gap: 8px;
-			max-height: 260px;
-			overflow-y: auto;
-			padding-right: 4px;
-		}
+			.panel-header:hover {
+				opacity: 0.8;
+			}
 
-		.history-list::-webkit-scrollbar {
-			width: 4px;
-		}
-		.history-list::-webkit-scrollbar-thumb {
-			background: var(--sidebar-border);
-		}
+			.panel-header h2 {
+				margin: 0;
+				padding: 0;
+				border: none;
+				opacity: 1;
+			}
 
-		.history-item {
-			border: 1px solid var(--sidebar-border);
-			border-radius: 4px;
-			padding: 10px;
-			background: var(--card);
-			display: flex;
-			flex-direction: column;
-			gap: 8px;
-		}
+			.panel-toggle {
+				width: 16px;
+				height: 16px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				transition: transform 0.2s ease;
+				opacity: 0.6;
+			}
 
-		.history-title {
-			font-size: 12px;
-			font-weight: 600;
-			color: var(--foreground);
-			display: flex;
-			justify-content: space-between;
-			gap: 8px;
-		}
+			.panel-toggle svg {
+				width: 12px;
+				height: 12px;
+				fill: currentColor;
+			}
 
-		.history-meta {
-			font-size: 11px;
-			color: var(--muted-foreground);
-			display: flex;
-			justify-content: space-between;
-			gap: 8px;
-			font-family: var(--font-mono);
-		}
+			.panel.collapsed .panel-header {
+				margin-bottom: 0;
+				padding-bottom: 0;
+				border-bottom: none;
+			}
 
-		.history-actions {
-			display: flex;
-			gap: 6px;
-		}
+			.panel.collapsed .panel-content {
+				display: none;
+			}
 
-		.history-actions button {
-			flex: 1;
-			height: 24px;
-			font-size: 11px;
-			font-weight: 500;
-			background-color: transparent;
-			border: 1px solid var(--sidebar-border);
-			color: var(--sidebar-foreground);
-			padding: 0;
-		}
+			.panel.collapsed .panel-toggle {
+				transform: rotate(-90deg);
+			}
 
-		.history-actions button:hover:not(:disabled) {
-			background-color: var(--sidebar-accent);
-			color: var(--sidebar-accent-foreground);
-		}
+			.panel-content {
+				transition: all 0.2s ease;
+			}
 
-		.history-empty {
-			font-size: 12px;
-			color: var(--muted-foreground);
-			text-align: center;
-			padding: 20px 0;
-			border: 1px dashed var(--sidebar-border);
-			border-radius: 4px;
-		}
+			/* Hide h2 when using panel-header */
+			.panel h2 {
+				font-size: 12px;
+				font-weight: 600;
+				color: var(--sidebar-foreground);
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				margin: 0 0 12px 0;
+				padding-bottom: 8px;
+				border-bottom: 1px solid var(--sidebar-border);
+				opacity: 0.8;
+			}
 
-		.history-header {
-			display: flex;
-			justify-content: space-between;
-			align-items: center;
-			margin-bottom: 12px;
-			border-bottom: 1px solid var(--sidebar-border);
-			padding-bottom: 8px;
-		}
+			.panel.collapsed h2.title-only {
+				display: block;
+				margin: 0;
+				padding: 0;
+				border: none;
+				opacity: 0.5;
+				font-size: 10px;
+				text-transform: none;
+				letter-spacing: 0;
+			}
 
-		.history-header h2 {
-			margin: 0;
-			padding: 0;
-			border: none;
-		}
+			/* Form Controls */
+			.control-group {
+				margin-bottom: 12px;
+				position: relative;
+			}
 
-		.history-clear {
-			flex: 0 0 auto;
-			height: 20px;
-			padding: 0 8px;
-			font-size: 10px;
-			background-color: transparent;
-			color: var(--muted-foreground);
-			border: none;
-		}
+			.control-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				margin-bottom: 4px;
+			}
 
-		.history-clear:hover:not(:disabled) {
-			color: var(--destructive);
-			background: transparent;
-		}
+			.control-group label {
+				font-size: 13px;
+				color: var(--sidebar-foreground);
+				font-weight: 400;
+			}
 
-		/* Footer */
-		.footer {
-			margin-top: auto;
-			color: var(--muted-foreground);
-			font-size: 10px;
-			text-align: center;
-			padding: 12px;
-			border-top: 1px solid var(--sidebar-border);
-			background: var(--sidebar);
-		}
+			.control-desc {
+				font-size: 11px;
+				color: var(--muted-foreground);
+				line-height: 1.4;
+			}
 
-		/* Main Content - Right Side */
-		.content {
-			flex: 1;
-			padding: 0;
-			display: flex;
-			justify-content: center;
-			align-items: center;
-			background-color: #000; /* Keep canvas black for contrast */
-			position: relative;
-			overflow: hidden;
-		}
-		
-		#pcb_view {
-			background: #000;
-			width: 100%;
-			height: 100%;
-			display: flex;
-			justify-content: center;
-			align-items: center;
-		}
-		
-		/* Log Overlay */
-		#log-overlay {
-			position: absolute;
-			top: 20px;
-			right: 20px;
-			background: rgba(0, 0, 0, 0.85);
-			padding: 12px;
-			border-radius: 6px;
-			box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-			display: none;
-			z-index: 100;
-			width: 300px;
-			max-height: 300px;
-			overflow-y: auto;
-			color: #4ade80; /* Tailwind green-400 */
-			font-family: var(--font-mono);
-			font-size: 11px;
-			border: 1px solid #333;
-			backdrop-filter: blur(4px);
-		}
+			.control-group input[type='number'],
+			.control-group select {
+				width: auto;
+				padding: 4px 8px;
+				border: 1px solid var(--sidebar-border);
+				border-radius: 4px;
+				outline: none;
+				background-color: var(--input);
+				color: var(--foreground);
+				font-family: var(--font-mono);
+				font-size: 12px;
+				transition: all 0.2s;
+				height: 28px;
+			}
 
-		.log-entry {
-			margin-bottom: 4px;
-			white-space: pre-wrap;
-			word-break: break-all;
-			line-height: 1.3;
-		}
+			.control-group input[type='number']:focus,
+			.control-group select:focus {
+				border-color: var(--sidebar-ring);
+				box-shadow: 0 0 0 1px var(--sidebar-ring);
+			}
 
-		/* Hidden elements */
-		.hidden-option {
-			display: none;
-		}
+			/* File Input */
+			.file-input-wrapper {
+				margin-bottom: 15px;
+				padding: 20px;
+				border: 1px dashed var(--sidebar-border);
+				border-radius: var(--radius);
+				text-align: center;
+				transition: all 0.2s;
+				background: rgba(255, 255, 255, 0.02);
+				cursor: pointer;
+			}
 
-		/* SVG Styles */
-		svg {
-			display: block;
-			max-width: 100%;
-			max-height: 100%;
-		}
-		
-		#timer-display {
-			position: absolute;
-			top: 20px;
-			right: 20px;
-			background: var(--primary);
-			color: var(--primary-foreground);
-			padding: 6px 12px;
-			border-radius: 4px;
-			font-family: var(--font-mono);
-			font-size: 14px;
-			font-weight: 600;
-			z-index: 101;
-			display: none;
-			box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-		}
+			.file-input-wrapper:hover {
+				border-color: var(--sidebar-primary);
+				background: rgba(255, 255, 255, 0.05);
+			}
 
-	</style>
-</head>
-<body>
-	<div class="sidebar">
-		<div class="sidebar-content">
-			<div class="panel">
-				<h2>导入设置</h2>
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_g">边框间隙 (Gap)</label>
-						<input id="arg_g" type="number" min="1" max="5" step="1" value="2"/>
+			.file-input-wrapper input {
+				width: 100%;
+				font-size: 11px;
+				color: var(--muted-foreground);
+			}
+
+			/* Buttons */
+			.btn-group {
+				display: flex;
+				gap: 10px;
+				margin-top: 16px;
+			}
+
+			.btn-small-group {
+				display: flex;
+				gap: 6px;
+				margin-top: 8px;
+			}
+
+			button {
+				flex: 1;
+				padding: 8px 16px;
+				font-size: 13px;
+				font-weight: 500;
+				cursor: pointer;
+				border: 1px solid transparent;
+				border-radius: 4px;
+				transition: all 0.2s ease;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				height: 32px;
+			}
+
+			button:active {
+				transform: translateY(1px);
+			}
+
+			button.btn-small {
+				flex: 0 0 auto;
+				padding: 4px 10px;
+				font-size: 11px;
+				height: auto;
+			}
+
+			button.btn-primary {
+				background-color: var(--sidebar-primary);
+				color: var(--sidebar-primary-foreground);
+			}
+
+			#go {
+				background-color: var(--sidebar-primary);
+				color: var(--sidebar-primary-foreground);
+			}
+
+			#go:hover {
+				opacity: 0.9;
+			}
+
+			#export_ses {
+				background-color: transparent;
+				border: 1px solid var(--sidebar-border);
+				color: var(--sidebar-foreground);
+			}
+
+			#export_ses:hover:not(:disabled) {
+				background-color: var(--sidebar-accent);
+				color: var(--sidebar-accent-foreground);
+			}
+
+			#load_dsn_eda {
+				width: 100%;
+				background-color: var(--secondary);
+				color: var(--secondary-foreground);
+			}
+
+			#load_dsn_eda:hover {
+				opacity: 0.9;
+			}
+
+			button:disabled {
+				background-color: var(--muted) !important;
+				color: var(--muted-foreground) !important;
+				cursor: not-allowed;
+				border-color: transparent !important;
+			}
+
+			/* History */
+			.history-list {
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+				max-height: 260px;
+				overflow-y: auto;
+				padding-right: 4px;
+			}
+
+			.history-list::-webkit-scrollbar {
+				width: 4px;
+			}
+			.history-list::-webkit-scrollbar-thumb {
+				background: var(--sidebar-border);
+			}
+
+			.history-item {
+				border: 1px solid var(--sidebar-border);
+				border-radius: 4px;
+				padding: 10px;
+				background: var(--card);
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+			}
+
+			.history-title {
+				font-size: 12px;
+				font-weight: 600;
+				color: var(--foreground);
+				display: flex;
+				justify-content: space-between;
+				gap: 8px;
+			}
+
+			.history-meta {
+				font-size: 11px;
+				color: var(--muted-foreground);
+				display: flex;
+				justify-content: space-between;
+				gap: 8px;
+				font-family: var(--font-mono);
+			}
+
+			.history-actions {
+				display: flex;
+				gap: 6px;
+			}
+
+			.history-actions button {
+				flex: 1;
+				height: 24px;
+				font-size: 11px;
+				font-weight: 500;
+				background-color: transparent;
+				border: 1px solid var(--sidebar-border);
+				color: var(--sidebar-foreground);
+				padding: 0;
+			}
+
+			.history-actions button:hover:not(:disabled) {
+				background-color: var(--sidebar-accent);
+				color: var(--sidebar-accent-foreground);
+			}
+
+			.history-empty {
+				font-size: 12px;
+				color: var(--muted-foreground);
+				text-align: center;
+				padding: 20px 0;
+				border: 1px dashed var(--sidebar-border);
+				border-radius: 4px;
+			}
+
+			.history-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				margin-bottom: 12px;
+				border-bottom: 1px solid var(--sidebar-border);
+				padding-bottom: 8px;
+			}
+
+			.history-header h2 {
+				margin: 0;
+				padding: 0;
+				border: none;
+			}
+
+			.history-clear {
+				flex: 0 0 auto;
+				height: 20px;
+				padding: 0 8px;
+				font-size: 10px;
+				background-color: transparent;
+				color: var(--muted-foreground);
+				border: none;
+			}
+
+			.history-clear:hover:not(:disabled) {
+				color: var(--destructive);
+				background: transparent;
+			}
+
+			/* Layer Panel */
+			.layer-list {
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+				max-height: 200px;
+				overflow-y: auto;
+			}
+
+			.layer-item {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 8px;
+				background: var(--card);
+				border: 1px solid var(--sidebar-border);
+				border-radius: 4px;
+			}
+
+			.layer-item.disabled {
+				opacity: 0.4;
+			}
+
+			.layer-name {
+				flex: 0 0 auto;
+				min-width: 60px;
+				font-weight: 500;
+			}
+
+			.layer-type-select {
+				flex: 1;
+			}
+
+			.layer-type-select select {
+				width: 100%;
+			}
+
+			/* Net Panel */
+			.net-list-container {
+				max-height: 250px;
+				overflow-y: auto;
+			}
+
+			.net-list {
+				display: flex;
+				flex-direction: column;
+				gap: 4px;
+			}
+
+			.net-item {
+				display: flex;
+				align-items: flex-start;
+				gap: 8px;
+				padding: 6px 8px;
+				background: var(--card);
+				border: 1px solid var(--sidebar-border);
+				border-radius: 4px;
+			}
+
+			.net-item.selected {
+				background: var(--sidebar-primary);
+				color: var(--sidebar-primary-foreground);
+			}
+
+			.net-checkbox {
+				flex: 0 0 auto;
+				width: 16px;
+				height: 16px;
+				margin-top: 2px;
+				cursor: pointer;
+			}
+
+			.net-info {
+				flex: 1;
+				display: flex;
+				flex-direction: column;
+				gap: 4px;
+				min-width: 0;
+			}
+
+			.net-name {
+				font-size: 12px;
+				font-weight: 500;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.net-layers {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 4px;
+			}
+
+			.layer-chip {
+				font-size: 10px;
+				padding: 2px 6px;
+				background: var(--muted);
+				color: var(--muted-foreground);
+				border-radius: 8px;
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+			}
+
+			.net-item.selected .layer-chip {
+				background: rgba(0, 0, 0, 0.2);
+				color: var(--sidebar-primary-foreground);
+			}
+
+			.layer-chip .remove-layer {
+				cursor: pointer;
+				opacity: 0.6;
+			}
+
+			.layer-chip .remove-layer:hover {
+				opacity: 1;
+			}
+
+			.net-layer-select {
+				flex: 0 0 auto;
+				width: auto;
+				min-width: 80px;
+			}
+
+			.net-layer-select select {
+				height: 24px;
+				padding: 0 6px;
+				font-size: 11px;
+			}
+
+			.net-list-actions {
+				display: flex;
+				gap: 6px;
+				margin-bottom: 8px;
+			}
+
+			.net-list-actions button {
+				flex: 1;
+				height: 26px;
+				font-size: 11px;
+				padding: 0 8px;
+			}
+
+			.net-add-form {
+				display: flex;
+				gap: 6px;
+				margin-bottom: 8px;
+			}
+
+			.net-add-form input[type='text'] {
+				flex: 1;
+				padding: 4px 8px;
+				border: 1px solid var(--sidebar-border);
+				border-radius: 4px;
+				outline: none;
+				background-color: var(--input);
+				color: var(--foreground);
+				font-size: 12px;
+				height: 28px;
+			}
+
+			.net-add-form select {
+				min-width: 100px;
+			}
+
+			.net-add-form button {
+				flex: 0 0 auto;
+				padding: 0 12px;
+			}
+
+			.net-empty {
+				font-size: 12px;
+				color: var(--muted-foreground);
+				text-align: center;
+				padding: 20px 0;
+			}
+
+			/* Footer */
+			.footer {
+				margin-top: auto;
+				color: var(--muted-foreground);
+				font-size: 10px;
+				text-align: center;
+				padding: 12px;
+				border-top: 1px solid var(--sidebar-border);
+				background: var(--sidebar);
+			}
+
+			/* Main Content - Right Side */
+			.content {
+				flex: 1;
+				display: flex;
+				flex-direction: row;
+				background-color: #000;
+				position: relative;
+				overflow: hidden;
+			}
+
+			.pcb-view-container {
+				flex: 1;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				position: relative;
+				overflow: hidden;
+			}
+
+			#pcb_view {
+				background: #000;
+				width: 100%;
+				height: 100%;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+			}
+
+			/* Debug Log Panel - Right Side */
+			.log-panel {
+				background: var(--sidebar);
+				border-left: 1px solid var(--sidebar-border);
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+				transition: width 0.3s ease;
+			}
+
+			.log-panel.expanded {
+				width: 300px;
+			}
+
+			.log-panel.collapsed {
+				width: 40px;
+			}
+
+			.log-panel.collapsed .log-panel-header h3,
+			.log-panel.collapsed .log-panel-actions,
+			.log-panel.collapsed #log-content {
+				display: none;
+			}
+
+			.log-panel.collapsed .log-panel-header {
+				flex-direction: column;
+				padding: 8px 4px;
+			}
+
+			.log-panel.collapsed .log-toggle-icon {
+				transform: rotate(180deg);
+			}
+
+			.log-panel-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 16px;
+				border-bottom: 1px solid var(--sidebar-border);
+				background: var(--sidebar);
+				flex-shrink: 0;
+			}
+
+			.log-panel-header h3 {
+				margin: 0;
+				font-size: 12px;
+				font-weight: 600;
+				color: var(--sidebar-foreground);
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+			}
+
+			.log-panel-actions {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+
+			.log-panel-actions button {
+				flex: 0 0 auto;
+				height: 24px;
+				padding: 0 8px;
+				font-size: 10px;
+				background: transparent;
+				border: 1px solid var(--sidebar-border);
+				color: var(--sidebar-foreground);
+			}
+
+			.log-panel-actions button:hover {
+				background: var(--sidebar-accent);
+				color: var(--sidebar-accent-foreground);
+			}
+
+			.log-toggle-btn {
+				cursor: pointer;
+				background: transparent;
+				border: none;
+				padding: 4px;
+				width: 24px;
+				height: 24px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+
+			.log-toggle-btn:hover {
+				opacity: 0.8;
+			}
+
+			.log-toggle-btn svg {
+				width: 16px;
+				height: 16px;
+				fill: currentColor;
+			}
+
+			#log-content {
+				flex: 1;
+				overflow-y: auto;
+				padding: 12px;
+				font-family: var(--font-mono);
+				font-size: 11px;
+				color: #4ade80;
+				background: rgba(0, 0, 0, 0.3);
+			}
+
+			#log-content::-webkit-scrollbar {
+				width: 6px;
+			}
+			#log-content::-webkit-scrollbar-thumb {
+				background: var(--sidebar-border);
+				border-radius: 3px;
+			}
+
+			.log-entry {
+				margin-bottom: 6px;
+				white-space: pre-wrap;
+				word-break: break-all;
+				line-height: 1.4;
+				padding: 4px 6px;
+				background: rgba(74, 222, 128, 0.05);
+				border-radius: 3px;
+				border-left: 2px solid #4ade80;
+			}
+
+			.log-entry.warn {
+				color: #fbbf24;
+				background: rgba(251, 191, 36, 0.1);
+				border-left-color: #fbbf24;
+			}
+
+			.log-entry.error {
+				color: #f87171;
+				background: rgba(248, 113, 113, 0.1);
+				border-left-color: #f87171;
+			}
+
+			.log-entry.info {
+				color: #60a5fa;
+				background: rgba(96, 165, 250, 0.1);
+				border-left-color: #60a5fa;
+			}
+
+			.log-empty {
+				color: var(--muted-foreground);
+				text-align: center;
+				padding: 40px 20px;
+				font-size: 12px;
+			}
+
+			/* Timer Display */
+			#timer-display {
+				position: absolute;
+				top: 20px;
+				right: 20px;
+				background: var(--primary);
+				color: var(--primary-foreground);
+				padding: 6px 12px;
+				border-radius: 4px;
+				font-family: var(--font-mono);
+				font-size: 14px;
+				font-weight: 600;
+				z-index: 100;
+				display: none;
+				box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+			}
+
+			/* Hidden elements */
+			.hidden-option {
+				display: none;
+			}
+
+			/* SVG Styles */
+			svg {
+				display: block;
+				max-width: 100%;
+				max-height: 100%;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="sidebar">
+			<div class="sidebar-content">
+				<div class="panel" id="panel-import">
+					<div class="panel-header" onclick="togglePanel('panel-import')">
+						<h2 class="title-only">导入设置</h2>
+						<div class="panel-toggle">
+							<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" /></svg>
+						</div>
 					</div>
-					<div class="control-desc">PCB 边界与布线区域保留的间距单位</div>
-				</div>
-				
-				<div class="file-input-wrapper" id="file_input_wrapper">
-					<input type="file" id="files" name="files[]" accept=".dsn" single/>
+					<div class="panel-content">
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_g">边框间隙 (Gap)</label>
+								<input id="arg_g" type="number" min="1" max="5" step="1" value="2" />
+							</div>
+							<div class="control-desc">PCB 边界与布线区域保留的间距单位</div>
+						</div>
+
+						<div class="file-input-wrapper" id="file_input_wrapper">
+							<input type="file" id="files" name="files[]" accept=".dsn" single />
+						</div>
+
+						<div class="btn-group" id="eda_input_group" style="display: none; margin-top: 0">
+							<button id="load_dsn_eda" type="button">从 EDA 获取 DSN</button>
+						</div>
+
+						<input type="checkbox" id="jlc_convert" class="hidden-option" checked />
+						<input id="scale" type="number" class="hidden-option" value="1" />
+					</div>
 				</div>
 
-				<div class="btn-group" id="eda_input_group" style="display:none; margin-top: 0;">
-					<button id="load_dsn_eda" type="button">从 EDA 获取 DSN</button>
+				<div class="panel" id="panel-route">
+					<div class="panel-header" onclick="togglePanel('panel-route')">
+						<h2 class="title-only">布线参数</h2>
+						<div class="panel-toggle">
+							<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" /></svg>
+						</div>
+					</div>
+					<div class="panel-content">
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_t">超时时间 (Timeout)</label>
+								<input id="arg_t" type="number" min="0" max="10000" step="1" value="600" />
+							</div>
+							<div class="control-desc">自动布线程序运行的最大时间（秒）</div>
+						</div>
+
+						<input id="arg_v" type="number" class="hidden-option" value="1" />
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_z">过孔代价 (Via Cost)</label>
+								<input id="arg_z" type="number" min="0" max="256" step="1" value="16" />
+							</div>
+							<div class="control-desc">添加过孔的惩罚权重，越高越少用过孔</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_s">采样次数 (Samples)</label>
+								<input id="arg_s" type="number" min="1" max="32" step="1" value="1" />
+							</div>
+							<div class="control-desc">路径搜索算法的采样迭代次数</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_r">网格分辨率 (Resolution)</label>
+								<input id="arg_r" type="number" min="1" max="4" step="1" value="1" />
+							</div>
+							<div class="control-desc">布线网格的精细度倍率</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_d">距离度量 (Metric)</label>
+								<input id="arg_d" type="number" min="0" max="4" step="1" value="1" />
+							</div>
+							<div class="control-desc">路径评估算法 (0:欧氏距离, 1:曼哈顿等)</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_q">量化精度 (Quantization)</label>
+								<input id="arg_q" type="number" min="0" max="64" step="1" value="2" />
+							</div>
+							<div class="control-desc">坐标点吸附网格的精度等级</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_fr">扩散范围 (Spread)</label>
+								<input id="arg_fr" type="number" min="0" max="5" step="1" value="2" />
+							</div>
+							<div class="control-desc">搜索算法向外扩散的范围系数</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_xr">X 范围 (X-Range)</label>
+								<input id="arg_xr" type="number" min="0" max="5" step="1" value="1" />
+							</div>
+							<div class="control-desc">水平方向的搜索/限制范围</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
+								<label for="arg_yr">Y 范围 (Y-Range)</label>
+								<input id="arg_yr" type="number" min="0" max="5" step="1" value="1" />
+							</div>
+							<div class="control-desc">垂直方向的搜索/限制范围</div>
+						</div>
+
+						<div class="btn-group">
+							<button id="go" type="button">开始布线</button>
+							<button id="export_ses" type="button" disabled>导出 SES</button>
+						</div>
+					</div>
 				</div>
-				
-				<input type="checkbox" id="jlc_convert" class="hidden-option" checked/>
-				<input id="scale" type="number" class="hidden-option" value="1"/>
+
+				<div class="panel" id="panel-layers" style="display: none">
+					<div class="panel-header" onclick="togglePanel('panel-layers')">
+						<h2 class="title-only">层规划</h2>
+						<div class="panel-toggle">
+							<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" /></svg>
+						</div>
+					</div>
+					<div class="panel-content">
+						<div class="layer-list" id="layer-list"></div>
+						<div class="control-desc" style="margin-top: 8px">仅 4 层及以上 PCB 启用</div>
+					</div>
+				</div>
+
+				<div class="panel" id="panel-nets" style="display: none">
+					<div class="panel-header" onclick="togglePanel('panel-nets')">
+						<h2 class="title-only">网络规划</h2>
+						<div class="panel-toggle">
+							<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" /></svg>
+						</div>
+					</div>
+					<div class="panel-content">
+						<div class="net-add-form">
+							<input type="text" id="new-net-name" placeholder="网络名称" />
+							<select id="new-net-layer"></select>
+							<button type="button" onclick="addCustomNet()">添加</button>
+						</div>
+						<div class="net-list-actions">
+							<button type="button" onclick="selectAllNets()">全选</button>
+							<button type="button" onclick="deselectAllNets()">取消</button>
+							<select id="bulk-layer-select" style="flex: 1; min-width: 100px"></select>
+							<button type="button" onclick="bulkChangeLayer()" style="flex: 0 0 auto">批量</button>
+						</div>
+						<div class="net-list-container">
+							<div class="net-list" id="net-list"></div>
+							<div id="net-empty" class="net-empty">暂无网络数据，请先加载 DSN</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="panel" id="panel-history">
+					<div class="panel-header" onclick="togglePanel('panel-history')">
+						<h2 class="title-only">历史记录</h2>
+						<div class="panel-toggle">
+							<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" /></svg>
+						</div>
+					</div>
+					<div class="panel-content">
+						<div id="history_empty" class="history-empty">暂无历史记录</div>
+						<div id="history_list" class="history-list"></div>
+						<button id="clear_history" class="history-clear" type="button" style="margin-top: 12px; width: 100%">清空历史</button>
+					</div>
+				</div>
 			</div>
+			<div class="footer">JS-PCB Autorouter v1.5 | Based on github.com/vygr/JS-PCB</div>
+		</div>
 
-			<div class="panel">
-				<h2>布线参数</h2>
-				
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_t">超时时间 (Timeout)</label>
-						<input id="arg_t" type="number" min="0" max="10000" step="1" value="600"/>
-					</div>
-					<div class="control-desc">自动布线程序运行的最大时间（秒）</div>
-				</div>
-
-				<input id="arg_v" type="number" class="hidden-option" value="1"/>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_z">过孔代价 (Via Cost)</label>
-						<input id="arg_z" type="number" min="0" max="256" step="1" value="16"/>
-					</div>
-					<div class="control-desc">添加过孔的惩罚权重，越高越少用过孔</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_s">采样次数 (Samples)</label>
-						<input id="arg_s" type="number" min="1" max="32" step="1" value="1"/>
-					</div>
-					<div class="control-desc">路径搜索算法的采样迭代次数</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_r">网格分辨率 (Resolution)</label>
-						<input id="arg_r" type="number" min="1" max="4" step="1" value="1"/>
-					</div>
-					<div class="control-desc">布线网格的精细度倍率</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_d">距离度量 (Metric)</label>
-						<input id="arg_d" type="number" min="0" max="4" step="1" value="1"/>
-					</div>
-					<div class="control-desc">路径评估算法 (0:欧氏距离, 1:曼哈顿等)</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_q">量化精度 (Quantization)</label>
-						<input id="arg_q" type="number" min="0" max="64" step="1" value="2"/>
-					</div>
-					<div class="control-desc">坐标点吸附网格的精度等级</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_fr">扩散范围 (Spread)</label>
-						<input id="arg_fr" type="number" min="0" max="5" step="1" value="2"/>
-					</div>
-					<div class="control-desc">搜索算法向外扩散的范围系数</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_xr">X 范围 (X-Range)</label>
-						<input id="arg_xr" type="number" min="0" max="5" step="1" value="1"/>
-					</div>
-					<div class="control-desc">水平方向的搜索/限制范围</div>
-				</div>
-
-				<div class="control-group">
-					<div class="control-header">
-						<label for="arg_yr">Y 范围 (Y-Range)</label>
-						<input id="arg_yr" type="number" min="0" max="5" step="1" value="1"/>
-					</div>
-					<div class="control-desc">垂直方向的搜索/限制范围</div>
-				</div>
-
-				<div class="btn-group">
-					<button id="go" type="button">开始布线</button>
-					<button id="export_ses" type="button" disabled>导出 SES</button>
+		<div class="content">
+			<div class="pcb-view-container">
+				<div id="timer-display">00:00</div>
+				<div id="pcb_view">
+					<!-- SVG 将被渲染在这里 -->
 				</div>
 			</div>
-
-			<div class="panel">
-				<div class="history-header">
-					<h2>历史记录</h2>
-					<button id="clear_history" class="history-clear" type="button">清空</button>
+			<div class="log-panel expanded" id="log-panel">
+				<div class="log-panel-header">
+					<h3>调试日志</h3>
+					<div class="log-panel-actions">
+						<button id="clear_log" type="button">清空</button>
+						<button class="log-toggle-btn" type="button" onclick="toggleLogPanel()">
+							<svg viewBox="0 0 24 24" class="log-toggle-icon"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
+						</button>
+					</div>
 				</div>
-				<div id="history_empty" class="history-empty">暂无历史记录</div>
-				<div id="history_list" class="history-list"></div>
+				<div id="log-content">
+					<div class="log-empty">等待操作...</div>
+				</div>
 			</div>
 		</div>
-		<div class="footer">
-			JS-PCB Autorouter v1.5 | Based on github.com/vygr/JS-PCB
-		</div>
-	</div>
 
-	<div class="content">
-		<div id="timer-display">00:00</div>
-		<div id="log-overlay">
-			<div id="log-content"></div>
-		</div>
-		<div id="pcb_view">
-			<!-- SVG 将被渲染在这里 -->
-		</div>
-	</div>
+		<script>
+			// Panel collapse/expand functionality
+			function togglePanel(panelId) {
+				const panel = document.getElementById(panelId);
+				if (panel) {
+					panel.classList.toggle('collapsed');
+				}
+			}
 
-	<script type="text/javascript" src="/iframe/jspcb/main.js"></script>
-</body>
+			// Log panel toggle
+			function toggleLogPanel() {
+				const logPanel = document.getElementById('log-panel');
+				if (logPanel) {
+					logPanel.classList.toggle('expanded');
+					logPanel.classList.toggle('collapsed');
+				}
+			}
+
+			// Log functionality
+			const logContent = document.getElementById('log-content');
+			const clearLogBtn = document.getElementById('clear_log');
+
+			if (clearLogBtn) {
+				clearLogBtn.addEventListener('click', function () {
+					logContent.innerHTML = '<div class="log-empty">等待操作...</div>';
+				});
+			}
+
+			// Override console.log to capture logs
+			const originalLog = console.log;
+			const originalWarn = console.warn;
+			const originalError = console.error;
+
+			function addLogEntry(message, type = 'log') {
+				const emptyMsg = logContent.querySelector('.log-empty');
+				if (emptyMsg) {
+					emptyMsg.remove();
+				}
+
+				const entry = document.createElement('div');
+				entry.className = 'log-entry ' + type;
+
+				const timestamp = new Date().toLocaleTimeString('zh-CN', {
+					hour: '2-digit',
+					minute: '2-digit',
+					second: '2-digit',
+					hour12: false,
+				});
+
+				entry.textContent = '[' + timestamp + '] ' + message;
+				logContent.appendChild(entry);
+				logContent.scrollTop = logContent.scrollHeight;
+
+				// Limit log entries to 100
+				const entries = logContent.querySelectorAll('.log-entry');
+				if (entries.length > 100) {
+					entries[0].remove();
+				}
+			}
+
+			console.log = function (...args) {
+				originalLog.apply(console, args);
+				addLogEntry(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' '), 'log');
+			};
+
+			console.warn = function (...args) {
+				originalWarn.apply(console, args);
+				addLogEntry(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' '), 'warn');
+			};
+
+			console.error = function (...args) {
+				originalError.apply(console, args);
+				addLogEntry(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' '), 'error');
+			};
+
+			// Layers and Nets data
+			let layerConfig = [];
+			let netConfig = [];
+			let layerCount = 2;
+
+			// Layer types
+			const layerTypes = [
+				{ value: 'signal', label: '信号层' },
+				{ value: 'power', label: '电源层' },
+				{ value: 'ground', label: '地层' },
+				{ value: 'internal', label: '内电层' },
+			];
+
+			// Initialize layers panel
+			function initLayersPanel(layers) {
+				layerCount = layers.length;
+				const layersPanel = document.getElementById('panel-layers');
+
+				// 4层以上才显示
+				if (layers.length >= 4) {
+					layersPanel.style.display = 'block';
+
+					layerConfig = layers.map((layer, index) => ({
+						id: index,
+						name: layer.name || `Layer ${index}`,
+						type:
+							index === 0 || index === layers.length - 1
+								? 'signal'
+								: index === 1
+									? 'ground'
+									: index === layers.length - 2
+										? 'power'
+										: 'signal',
+					}));
+
+					renderLayers();
+				} else {
+					layersPanel.style.display = 'none';
+				}
+			}
+
+			function renderLayers() {
+				const list = document.getElementById('layer-list');
+				list.innerHTML = '';
+
+				layerConfig.forEach((layer, index) => {
+					const item = document.createElement('div');
+					item.className = 'layer-item';
+
+					const options = layerTypes
+						.map((t) => `<option value="${t.value}" ${t.value === layer.type ? 'selected' : ''}>${t.label}</option>`)
+						.join('');
+
+					item.innerHTML = `
+					<span class="layer-name">${layer.name}</span>
+					<div class="layer-type-select">
+						<select onchange="updateLayerType(${index}, this.value)">
+							${options}
+						</select>
+					</div>
+				`;
+
+					list.appendChild(item);
+				});
+			}
+
+			function updateLayerType(index, type) {
+				layerConfig[index].type = type;
+				console.log(`Layer ${index} type changed to ${type}`);
+			}
+
+			// Initialize nets panel
+			function initNetsPanel(nets) {
+				const netsPanel = document.getElementById('panel-nets');
+				netsPanel.style.display = 'block';
+
+				// 网络预识别和预分配
+				netConfig = nets.map((net, index) => {
+					const netName = net.name || `NET_${index}`;
+					const assignedLayers = [];
+
+					// 1. 跳过 GND 网络（不预分配）
+					if (netName.toLowerCase() === 'gnd') {
+						console.log(`网络 ${netName} (GND) 不预分配层`);
+					}
+					// 2. 电源网络预分配
+					else if (isPowerNet(netName)) {
+						console.log(`网络 ${netName} 识别为电源网络，预分配层...`);
+						// 顶层
+						if (layerConfig.length > 0) {
+							assignedLayers.push(0);
+						}
+						// 底层
+						if (layerConfig.length > 1) {
+							assignedLayers.push(layerConfig.length - 1);
+						}
+						// 电源层
+						const powerLayerIdx = layerConfig.findIndex((l) => l.type === 'power');
+						if (powerLayerIdx !== -1 && !assignedLayers.includes(powerLayerIdx)) {
+							assignedLayers.push(powerLayerIdx);
+						}
+						console.log(
+							`电源网络 ${netName} 分配到层:`,
+							assignedLayers.map((i) => layerConfig[i]?.name || i),
+						);
+					}
+					// 3. 其他网络不预分配
+
+					return {
+						id: index,
+						name: netName,
+						layers: assignedLayers,
+						selected: false,
+					};
+				});
+
+				// Update layer selects
+				updateLayerSelects();
+				renderNets();
+			}
+
+			// 判断是否为电源网络
+			function isPowerNet(netName) {
+				const name = netName.toLowerCase();
+				const powerPatterns = [
+					/^vcc$/,
+					/^vdd$/,
+					/^vss$/,
+					/^\+\d+\.?\d*v$/, // +3.3V, +5V, +12V 等
+					/^vbat$/,
+					/^vout$/,
+					/^vin$/,
+					/^power$/,
+					/^pwr$/,
+				];
+				return powerPatterns.some((p) => p.test(name));
+			}
+
+			function updateLayerSelects() {
+				const options = layerConfig.map((l, i) => `<option value="${i}">${l.name}</option>`).join('');
+
+				document.getElementById('new-net-layer').innerHTML = options;
+				document.getElementById('bulk-layer-select').innerHTML = options;
+			}
+
+			function renderNets() {
+				const list = document.getElementById('net-list');
+				const empty = document.getElementById('net-empty');
+
+				if (netConfig.length === 0) {
+					list.innerHTML = '';
+					empty.style.display = 'block';
+					return;
+				}
+
+				empty.style.display = 'none';
+				list.innerHTML = '';
+
+				netConfig.forEach((net, index) => {
+					const item = document.createElement('div');
+					item.className = 'net-item' + (net.selected ? ' selected' : '');
+
+					// 构建层标签HTML
+					const layerChipsHTML = (net.layers || [])
+						.map((layerIdx) => {
+							const layerName = layerConfig[layerIdx]?.name || `Layer ${layerIdx}`;
+							return `<span class="layer-chip">${layerName}
+						<span class="remove-layer" onclick="removeNetLayer(event, ${index}, ${layerIdx})">&times;</span>
+					</span>`;
+						})
+						.join('');
+
+					const layerOptions = layerConfig.map((l, i) => `<option value="${i}">${l.name}</option>`).join('');
+
+					item.innerHTML = `
+					<input type="checkbox" class="net-checkbox" 
+						${net.selected ? 'checked' : ''} 
+						onclick="event.stopPropagation()"
+						onchange="toggleNetSelect(${index}, this.checked)" />
+					<div class="net-info">
+						<div class="net-name">${net.name}</div>
+						<div class="net-layers">
+							${layerChipsHTML}
+							<select class="add-layer-select" 
+								onclick="event.stopPropagation()"
+								onchange="addNetLayer(${index}, this.value)"
+								style="height: 20px; font-size: 10px; padding: 0 4px; border-radius: 8px;">
+								<option value="">+ 层</option>
+								${layerOptions}
+							</select>
+						</div>
+					</div>
+				`;
+
+					item.onclick = (e) => {
+						if (e.target.tagName !== 'SELECT' && e.target.tagName !== 'INPUT' && !e.target.classList.contains('remove-layer')) {
+							const newSelected = !net.selected;
+							toggleNetSelect(index, newSelected);
+						}
+					};
+
+					list.appendChild(item);
+				});
+			}
+
+			function toggleNetSelect(index, selected) {
+				netConfig[index].selected = selected;
+				renderNets();
+			}
+
+			function selectAllNets() {
+				netConfig.forEach((n) => (n.selected = true));
+				renderNets();
+			}
+
+			function deselectAllNets() {
+				netConfig.forEach((n) => (n.selected = false));
+				renderNets();
+			}
+
+			function addNetLayer(netIndex, layerIndexStr) {
+				if (!layerIndexStr) return;
+				const layerIndex = parseInt(layerIndexStr);
+
+				const net = netConfig[netIndex];
+				if (!net.layers) net.layers = [];
+
+				// 如果该层不在已选层中，添加进去
+				if (!net.layers.includes(layerIndex)) {
+					net.layers.push(layerIndex);
+					console.log(`Net ${net.name} added layer ${layerConfig[layerIndex]?.name || layerIndex}`);
+				}
+
+				renderNets();
+			}
+
+			function removeNetLayer(event, netIndex, layerIndex) {
+				event.stopPropagation();
+
+				const net = netConfig[netIndex];
+				if (net.layers) {
+					net.layers = net.layers.filter((l) => l !== layerIndex);
+					console.log(`Net ${net.name} removed layer ${layerConfig[layerIndex]?.name || layerIndex}`);
+				}
+
+				renderNets();
+			}
+
+			function bulkChangeLayer() {
+				const layerIndex = parseInt(document.getElementById('bulk-layer-select').value);
+
+				// 询问是添加还是替换
+				const mode = confirm('点击确定 = 覆盖现有层，点击取消 = 添加新层');
+
+				netConfig.forEach((n) => {
+					if (n.selected) {
+						if (!n.layers) n.layers = [];
+
+						if (mode) {
+							// 覆盖模式
+							n.layers = [layerIndex];
+						} else {
+							// 添加模式
+							if (!n.layers.includes(layerIndex)) {
+								n.layers.push(layerIndex);
+							}
+						}
+					}
+				});
+
+				renderNets();
+				const count = netConfig.filter((n) => n.selected).length;
+				console.log(`Updated ${count} nets`);
+			}
+
+			function addCustomNet() {
+				const name = document.getElementById('new-net-name').value.trim();
+				const layer = parseInt(document.getElementById('new-net-layer').value);
+
+				if (!name) {
+					console.warn('请输入网络名称');
+					return;
+				}
+
+				netConfig.push({
+					id: netConfig.length,
+					name: name,
+					layers: [layer],
+					selected: false,
+				});
+
+				document.getElementById('new-net-name').value = '';
+				renderNets();
+				console.log(`Added custom net: ${name}`);
+			}
+		</script>
+		<script type="text/javascript" src="/iframe/jspcb/main.js"></script>
+	</body>
 </html>
