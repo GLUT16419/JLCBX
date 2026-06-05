@@ -400,6 +400,26 @@ var js_pcb = js_pcb || {};
 			}
 		}
 
+		// 计算两个点之间的移动代价（支持45度角）
+		get_move_cost(node1, node2) {
+			let dx = Math.abs(node1[0] - node2[0]);
+			let dy = Math.abs(node1[1] - node2[1]);
+			let dz = Math.abs(node1[2] - node2[2]);
+
+			// 如果是z轴变化（过孔），返回过孔代价
+			if (dz !== 0) {
+				return this.m_viascost;
+			}
+
+			// 如果是45度角移动（x和y都变化），代价是√2 ≈ 1.414
+			if (dx !== 0 && dy !== 0) {
+				return Math.sqrt(2);
+			}
+
+			// 正交移动，代价是1
+			return 1;
+		}
+
 		//flood fill distances from starts till ends covered - BFS版本（保留作为回退）
 		mark_distances(vec, radius, via, gap, starts, ends, allowedLayers = null) {
 			let gn = this.get_node;

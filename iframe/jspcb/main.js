@@ -298,8 +298,24 @@ async function handleOnGo(evt) {
 				}
 			}
 		}
+		// 45度角走线参数
+		let arg_45deg = document.getElementById('arg_45deg')?.checked ? 1 : 0;
+
 		//post to solver thread
-		worker.postMessage([js_pcb.dsn2pcb(file, arg_g, netLayersArray), arg_t, arg_v, arg_s, arg_z, arg_r, arg_q, arg_d, arg_fr, arg_xr, arg_yr]);
+		worker.postMessage([
+			js_pcb.dsn2pcb(file, arg_g, netLayersArray),
+			arg_t,
+			arg_v,
+			arg_s,
+			arg_z,
+			arg_r,
+			arg_q,
+			arg_d,
+			arg_fr,
+			arg_xr,
+			arg_yr,
+			arg_45deg,
+		]);
 	}
 }
 
