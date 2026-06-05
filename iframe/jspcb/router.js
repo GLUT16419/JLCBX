@@ -1200,6 +1200,13 @@ var js_pcb = js_pcb || {};
 
 		// 双向A*搜索算法 - 从起点和终点同时搜索，在中间相遇
 		mark_distances_bidirectional(vec, radius, via, gap, starts, ends, allowedLayers = null) {
+			// 双向搜索太复杂，暂时回退到单向A*（原mark_distances_astar的逻辑）
+			// 先注释掉双向搜索，避免影响布线
+			this.mark_distances_astar(vec, radius, via, gap, starts, ends, allowedLayers);
+		}
+
+		// A*搜索算法（单向）
+		mark_distances_astar(vec, radius, via, gap, starts, ends, allowedLayers = null) {
 			let gn = this.get_node;
 			let sn = this.set_node;
 			let anm = this.all_not_marked;
@@ -1212,19 +1219,13 @@ var js_pcb = js_pcb || {};
 				return allowedLayers.includes(node[2]);
 			};
 
-			// 正向搜索（从起点）
-			let forward_open = new PriorityQueue();
-			let forward_g = new Map();
-			let forward_f = new Map();
-			let forward_visited = new Set();
+			// A*数据结构
+			let open = new PriorityQueue();
+			let g = new Map();
+			let f = new Map();
+			let visited = new Set();
 
-			// 反向搜索（从终点）
-			let backward_open = new PriorityQueue();
-			let backward_g = new Map();
-			let backward_f = new Map();
-			let backward_visited = new Set();
-
-			// 找到最近的起点-终点对
+			// 找到最近的起点-终点对用于启发式
 			let start_node = starts[0];
 			let end_node = ends[0];
 			let min_dist = Infinity;
@@ -1239,40 +1240,29 @@ var js_pcb = js_pcb || {};
 				}
 			}
 
-			// 初始化正向搜索
+			// 初始化所有起点
 			for (let start of starts) {
 				let key = start.toString();
-				forward_g.set(key, 0);
-				forward_f.set(key, this.heuristic(start, end_node));
-				forward_open.enqueue(forward_f.get(key), start);
+				g.set(key, 0);
+				f.set(key, this.heuristic(start, end_node));
+				open.enqueue(f.get(key), start);
 			}
 
-			// 初始化反向搜索
-			for (let end of ends) {
-				let key = end.toString();
-				backward_g.set(key, 0);
-				backward_f.set(key, this.heuristic(end, start_node));
-				backward_open.enqueue(backward_f.get(key), end);
-			}
+			let vias = new Map();
 
-			let forward_vias = new Map();
-			let backward_vias = new Map();
-			let meeting_node = null;
-
-			while (!forward_open.isEmpty() || !backward_open.isEmpty() || forward_vias.size || backward_vias.size) {
-				// 修复：检查所有终点是否都被标记了，如果都标记了就结束
+			while (!open.isEmpty() || vias.size) {
+				// 检查所有终点是否都被标记了，如果都标记了就结束
 				let all_ends_marked = ends.every((end) => gn.call(this, end) > 0);
 				if (all_ends_marked) break;
 
-				// 正向搜索一步
-				if (!forward_open.isEmpty()) {
-					let current = forward_open.dequeue();
+				if (!open.isEmpty()) {
+					let current = open.dequeue();
 					let current_key = current.toString();
-					let current_g = forward_g.get(current_key);
+					let current_g = g.get(current_key);
 
-					if (!forward_visited.has(current_key)) {
-						forward_visited.add(current_key);
-						sn.call(this, current, current_g + 1); // 标记正向距离
+					if (!visited.has(current_key)) {
+						visited.add(current_key);
+						sn.call(this, current, current_g + 1); // 标记距离
 
 						// 探索邻居
 						let new_nodes = new NodeSet();
@@ -1280,102 +1270,50 @@ var js_pcb = js_pcb || {};
 							if (filterNode(new_node)) new_nodes.add(new_node);
 						}
 
-						let new_vias = new NodeSet();
+						let new_vias_nodes = new NodeSet();
 						for (let new_node of ans.call(this, anm.call(this, via_vectors, current), current, via, gap)) {
-							if (filterNode(new_node)) new_vias.add(new_node);
+							if (filterNode(new_node)) new_vias_nodes.add(new_node);
 						}
 
 						for (let neighbor of new_nodes) {
 							let neighbor_key = neighbor.toString();
 							let tentative_g = current_g + 1;
-							if (!forward_g.has(neighbor_key) || tentative_g < forward_g.get(neighbor_key)) {
-								forward_g.set(neighbor_key, tentative_g);
-								forward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
-								forward_open.enqueue(forward_f.get(neighbor_key), neighbor);
+							if (!g.has(neighbor_key) || tentative_g < g.get(neighbor_key)) {
+								g.set(neighbor_key, tentative_g);
+								f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
+								open.enqueue(f.get(neighbor_key), neighbor);
 							}
 						}
 
-						if (new_vias.size) {
-							forward_vias.set(current_g + m_viascost, new_vias); // 存入时用过孔代价作为key
+						if (new_vias_nodes.size) {
+							vias.set(current_g + this.m_viascost, new_vias_nodes);
 						}
 
-						let delay_nodes = forward_vias.get(current_g); // 修复：在current_g时取出
+						let delay_nodes = vias.get(current_g + 1);
 						if (delay_nodes !== undefined) {
 							for (let neighbor of delay_nodes) {
-								if (!forward_visited.has(neighbor.toString())) {
-									let neighbor_key = neighbor.toString();
-									let tentative_g = current_g; // 修复：过孔邻居代价等于current_g
-									if (!forward_g.has(neighbor_key) || tentative_g < forward_g.get(neighbor_key)) {
-										forward_g.set(neighbor_key, tentative_g);
-										forward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
-										forward_open.enqueue(forward_f.get(neighbor_key), neighbor);
-									}
+								let neighbor_key = neighbor.toString();
+								let tentative_g = current_g + this.m_viascost;
+								if (!g.has(neighbor_key) || tentative_g < g.get(neighbor_key)) {
+									g.set(neighbor_key, tentative_g);
+									f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
+									open.enqueue(f.get(neighbor_key), neighbor);
 								}
 							}
-							forward_vias.delete(current_g);
+							vias.delete(current_g + 1);
 						}
 					}
 				}
 
-				// 反向搜索一步
-				if (!backward_open.isEmpty()) {
-					let current = backward_open.dequeue();
-					let current_key = current.toString();
-					let current_g = backward_g.get(current_key);
-
-					if (!backward_visited.has(current_key)) {
-						backward_visited.add(current_key);
-						sn.call(this, current, current_g + 1); // 修复：反向搜索也要标记节点到网格
-
-						// 探索邻居
-						let new_nodes = new NodeSet();
-						for (let new_node of ans.call(this, anm.call(this, vec, current), current, radius, gap)) {
-							if (filterNode(new_node)) new_nodes.add(new_node);
-						}
-
-						let new_vias = new NodeSet();
-						for (let new_node of ans.call(this, anm.call(this, via_vectors, current), current, via, gap)) {
-							if (filterNode(new_node)) new_vias.add(new_node);
-						}
-
-						for (let neighbor of new_nodes) {
-							let neighbor_key = neighbor.toString();
-							let tentative_g = current_g + 1;
-							if (!backward_g.has(neighbor_key) || tentative_g < backward_g.get(neighbor_key)) {
-								backward_g.set(neighbor_key, tentative_g);
-								backward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, start_node));
-								backward_open.enqueue(backward_f.get(neighbor_key), neighbor);
-							}
-						}
-
-						if (new_vias.size) {
-							backward_vias.set(current_g + m_viascost, new_vias); // 修复：存入时用过孔代价作为key
-						}
-
-						let delay_nodes = backward_vias.get(current_g); // 修复：在current_g时取出
-						if (delay_nodes !== undefined) {
-							for (let neighbor of delay_nodes) {
-								if (!backward_visited.has(neighbor.toString())) {
-									let neighbor_key = neighbor.toString();
-									let tentative_g = current_g; // 修复：过孔邻居代价等于current_g
-									if (!backward_g.has(neighbor_key) || tentative_g < backward_g.get(neighbor_key)) {
-										backward_g.set(neighbor_key, tentative_g);
-										backward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, start_node));
-										backward_open.enqueue(backward_f.get(neighbor_key), neighbor);
-									}
-								}
-							}
-							backward_vias.delete(current_g);
-						}
-					}
+				// 清理过期的过孔
+				let min_g = Infinity;
+				for (let key of g.values()) {
+					if (key < min_g) min_g = key;
 				}
-			}
-
-			// 如果相遇，确保终点被标记
-			if (meeting_node) {
-				for (let end of ends) {
-					if (gn.call(this, end) === 0) {
-						sn.call(this, end, forward_g.get(end.toString()) || backward_g.get(end.toString()) + 1 || 1);
+				for (let key of Array.from(vias.keys())) {
+					if (key < min_g + 100) {
+						// 安全值
+						vias.delete(key);
 					}
 				}
 			}
@@ -1776,8 +1714,8 @@ var js_pcb = js_pcb || {};
 			this.sub_terminal_collision_lines();
 			let visited = new NodeSet();
 
-			// 搜索算法优先级: A* -> BFS (双向搜索暂时禁用，待修复)
-			let use_bidirectional = true; // 启用双向搜索（已修复）
+			// 搜索算法优先级: A* -&gt; BFS (双向搜索暂时禁用，待修复)
+			let use_bidirectional = false; // 暂时禁用双向搜索
 			let use_astar = true;
 
 			for (let index = 1; index < this.m_terminals.length; ++index) {
