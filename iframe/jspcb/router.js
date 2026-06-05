@@ -813,22 +813,144 @@ var js_pcb = js_pcb || {};
 		optimise_paths(paths) {
 			let opt_paths = [];
 			for (let path of paths) {
-				let opt_path = [];
-				let d = [0.0, 0.0, 0.0];
-				let p1 = this.m_pcb.grid_to_space_point(path[0]);
-				for (let i = 1; i < path.length; ++i) {
-					let p0 = p1;
-					p1 = this.m_pcb.grid_to_space_point(path[i]);
-					let d1 = js_pcb.norm_3d(js_pcb.sub_3d(p1, p0));
-					if (!js_pcb.equal_3d(d1, d)) {
-						opt_path.push(path[i - 1]);
-						d = d1;
-					}
-				}
-				opt_path.push(path[path.length - 1]);
+				let opt_path = this.simplifyPath(path);
+				opt_path = this.chamferCorners(opt_path);
+				opt_path = this.removeUnnecessaryVias(opt_path);
 				opt_paths.push(opt_path);
 			}
 			return opt_paths;
+		}
+
+		// 简化路径 - 移除共线点
+		simplifyPath(path) {
+			if (path.length <= 2) return path;
+
+			let simplified = [path[0]];
+			let prev = path[0];
+
+			for (let i = 1; i < path.length - 1; i++) {
+				let curr = path[i];
+				let next = path[i + 1];
+
+				if (!this.areCollinear(prev, curr, next)) {
+					simplified.push(curr);
+					prev = curr;
+				}
+			}
+
+			if (path.length > 1) {
+				simplified.push(path[path.length - 1]);
+			}
+
+			return simplified;
+		}
+
+		// 检查三点是否共线
+		areCollinear(p1, p2, p3) {
+			let dx1 = p2[0] - p1[0];
+			let dy1 = p2[1] - p1[1];
+			let dx2 = p3[0] - p2[0];
+			let dy2 = p3[1] - p2[1];
+
+			return dx1 * dy2 === dy1 * dx2;
+		}
+
+		// 倒角优化 - 将90度角改为45度角
+		chamferCorners(path) {
+			if (path.length <= 2) return path;
+
+			let chamfered = [path[0]];
+
+			for (let i = 1; i < path.length - 1; i++) {
+				let prev = chamfered[chamfered.length - 1];
+				let curr = path[i];
+				let next = path[i + 1];
+
+				// 检查是否是90度角（正交方向变化）
+				let dx1 = curr[0] - prev[0];
+				let dy1 = curr[1] - prev[1];
+				let dx2 = next[0] - curr[0];
+				let dy2 = next[1] - curr[1];
+
+				// 如果是90度转弯且在同一层
+				if (prev[2] === curr[2] && curr[2] === next[2]) {
+					if ((dx1 !== 0 && dy2 !== 0 && dx2 === 0 && dy1 === 0) || (dy1 !== 0 && dx2 !== 0 && dx1 === 0 && dy2 === 0)) {
+						// 添加45度角点
+						let corner = [Math.round((prev[0] + next[0]) / 2), Math.round((prev[1] + next[1]) / 2), curr[2]];
+						chamfered.push(corner);
+						continue;
+					}
+				}
+
+				chamfered.push(curr);
+			}
+
+			if (path.length > 1) {
+				chamfered.push(path[path.length - 1]);
+			}
+
+			return chamfered;
+		}
+
+		// 移除不必要的过孔
+		removeUnnecessaryVias(path) {
+			if (path.length <= 2) return path;
+
+			let optimized = [path[0]];
+
+			for (let i = 1; i < path.length; i++) {
+				let curr = path[i];
+				let prev = optimized[optimized.length - 1];
+
+				// 如果当前点和前一点在同一层，跳过中间的过孔
+				if (optimized.length >= 2) {
+					let prev_prev = optimized[optimized.length - 2];
+					if (prev_prev[2] === curr[2] && prev[2] !== curr[2]) {
+						// 移除不必要的过孔
+						optimized.pop();
+					}
+				}
+
+				optimized.push(curr);
+			}
+
+			return optimized;
+		}
+
+		// 走线拉直 - 尝试用直线连接更远的点
+		straightenPath(path) {
+			if (path.length <= 3) return path;
+
+			let straightened = [path[0]];
+			let i = 0;
+
+			while (i < path.length - 1) {
+				let start = straightened[straightened.length - 1];
+				let best_reach = i + 1;
+
+				// 尝试找到最远的可达点
+				for (let j = i + 2; j < path.length; j++) {
+					if (this.canStraightLine(start, path[j])) {
+						best_reach = j;
+					} else {
+						break;
+					}
+				}
+
+				straightened.push(path[best_reach]);
+				i = best_reach;
+			}
+
+			return straightened;
+		}
+
+		// 检查两点之间是否可以直接连接（简化版：同一层且直线可达）
+		canStraightLine(p1, p2) {
+			// 必须在同一层
+			if (p1[2] !== p2[2]) return false;
+
+			// 检查是否是水平或垂直线
+			return p1[0] === p2[0] || p1[1] === p2[1];
 		}
 
 		//backtrack path from ends to starts
