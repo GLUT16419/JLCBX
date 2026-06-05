@@ -2,6 +2,77 @@
 
 var js_pcb = js_pcb || {};
 (function () {
+	// 布隆过滤器类：用于快速排除不可能碰撞的区域
+	class BloomFilter {
+		constructor(size, hashCount) {
+			this.m_size = size; // 位数组大小
+			this.m_hashCount = hashCount; // 哈希函数数量
+			this.m_bitArray = new Uint8Array(Math.ceil(size / 8)); // 位数组
+		}
+
+		// 简单的哈希函数
+		_hash(value, seed) {
+			let hash = seed;
+			for (let i = 0; i < value.length; i++) {
+				hash = (hash << 5) + hash + value.charCodeAt(i);
+				hash = hash & hash; // 转换为32位整数
+			}
+			return Math.abs(hash) % this.m_size;
+		}
+
+		// 生成多个哈希值
+		_generateHashes(value) {
+			let hashes = [];
+			for (let i = 0; i < this.m_hashCount; i++) {
+				hashes.push(this._hash(value, i * 31337 + 12345));
+			}
+			return hashes;
+		}
+
+		// 添加元素
+		add(value) {
+			let hashes = this._generateHashes(value);
+			for (let hash of hashes) {
+				this.m_bitArray[Math.floor(hash / 8)] |= 1 << hash % 8;
+			}
+		}
+
+		// 检查元素是否存在（可能误判，但不会漏判）
+		contains(value) {
+			let hashes = this._generateHashes(value);
+			for (let hash of hashes) {
+				if (!(this.m_bitArray[Math.floor(hash / 8)] & (1 << hash % 8))) {
+					return false; // 一定不存在
+				}
+			}
+			return true; // 可能存在
+		}
+
+		// 获取填充率
+		getFillRate() {
+			let setBits = 0;
+			for (let byte of this.m_bitArray) {
+				setBits += this._countBits(byte);
+			}
+			return setBits / this.m_size;
+		}
+
+		// 计算字节中的1的个数
+		_countBits(byte) {
+			let count = 0;
+			while (byte) {
+				count += byte & 1;
+				byte >>= 1;
+			}
+			return count;
+		}
+
+		// 重置过滤器
+		reset() {
+			this.m_bitArray = new Uint8Array(Math.ceil(this.m_size / 8));
+		}
+	}
+
 	class Line {
 		constructor(p1, p2, r, g) {
 			this.m_p1 = p1;
@@ -240,6 +311,40 @@ var js_pcb = js_pcb || {};
 		resetStats() {
 			this.m_hit_count = 0;
 			this.m_check_count = 0;
+			this.m_bloom_filter_skips = 0;
+			this.m_bloom_filter_hits = 0;
+		}
+
+		// 重建布隆过滤器（当误判率过高时）
+		rebuildBloomFilter() {
+			if (this.m_verbosity >= 1) {
+				console.log('[Layer] Rebuilding Bloom Filter, current fill rate: ' + (this.m_bloom_filter.getFillRate() * 100).toFixed(2) + '%');
+			}
+			this.m_bloom_filter.reset();
+
+			// 重新添加所有bucket
+			for (let y = 0; y < this.m_height; y++) {
+				for (let x = 0; x < this.m_width; x++) {
+					let bucket = this.m_buckets[y * this.m_width + x];
+					if (bucket.length > 0) {
+						this.m_bloom_filter.add('bucket_' + (y * this.m_width + x));
+					}
+				}
+			}
+
+			if (this.m_verbosity >= 1) {
+				console.log('[Layer] Bloom Filter rebuilt, new fill rate: ' + (this.m_bloom_filter.getFillRate() * 100).toFixed(2) + '%');
+			}
+		}
+
+		// 获取布隆过滤器的假阳性估计
+		estimateFalsePositiveRate() {
+			// 简化估计：基于填充率
+			let fillRate = this.m_bloom_filter.getFillRate();
+			let k = this.m_bloom_filter.m_hashCount;
+			// 理论假阳性率 = (1 - e^(-kn/m))^k
+			// 这里用简化估计
+			return Math.min(1, fillRate * k * 0.1);
 		}
 	}
 
