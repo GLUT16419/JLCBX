@@ -65,6 +65,26 @@ var js_pcb = js_pcb || {};
 		}
 	}
 
+	//优先级队列 - 用于A*算法
+	class PriorityQueue {
+		constructor() {
+			this.elements = [];
+		}
+
+		enqueue(priority, item) {
+			this.elements.push({ priority, item });
+			this.elements.sort((a, b) => a.priority - b.priority);
+		}
+
+		dequeue() {
+			return this.elements.shift().item;
+		}
+
+		isEmpty() {
+			return this.elements.length === 0;
+		}
+	}
+
 	//pcb class
 	class Pcb {
 		constructor(dims, rfvs, rpvs, dfunc, res, verb, quant, viascost) {
@@ -271,7 +291,116 @@ var js_pcb = js_pcb || {};
 			return nodes;
 		}
 
-		//flood fill distances from starts till ends covered
+		//曼哈顿距离启发式函数
+		heuristic(a, b) {
+			return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) * 2;
+		}
+
+		//A*算法计算距离 - 更高效的路径搜索
+		mark_distances_astar(vec, radius, via, gap, starts, ends, allowedLayers = null) {
+			let gn = this.get_node;
+			let sn = this.set_node;
+			let anm = this.all_not_marked;
+			let ans = this.all_not_shorting;
+			let via_vectors = this.m_via_vectors;
+
+			// 过滤节点函数：只允许在allowedLayers中的层
+			const filterNode = (node) => {
+				if (!allowedLayers || allowedLayers.length === 0) return true;
+				return allowedLayers.includes(node[2]);
+			};
+
+			// 找到最近的终点作为目标
+			let target_node = ends[0];
+			let min_dist = Infinity;
+			for (let end of ends) {
+				for (let start of starts) {
+					let dist = this.heuristic(start, end);
+					if (dist < min_dist) {
+						min_dist = dist;
+						target_node = end;
+					}
+				}
+			}
+
+			let open_set = new PriorityQueue();
+			let g_score = new Map();
+			let f_score = new Map();
+
+			// 初始化起始点
+			for (let start of starts) {
+				let key = start.toString();
+				g_score.set(key, 0);
+				f_score.set(key, this.heuristic(start, target_node));
+				open_set.enqueue(f_score.get(key), start);
+			}
+
+			let vias_nodes = new Map();
+
+			while (!open_set.isEmpty() || vias_nodes.size) {
+				let current = open_set.dequeue();
+				let current_key = current.toString();
+				let current_g = g_score.get(current_key);
+
+				// 标记当前节点
+				if (gn.call(this, current) === 0) {
+					sn.call(this, current, current_g + 1);
+				}
+
+				// 检查是否到达任一终点
+				if (ends.some((node) => gn.call(this, node) !== 0)) {
+					break;
+				}
+
+				// 探索邻居
+				let new_nodes = new NodeSet();
+				for (let new_node of ans.call(this, anm.call(this, vec, current), current, radius, gap)) {
+					if (filterNode(new_node)) new_nodes.add(new_node);
+				}
+
+				let new_vias_nodes = new NodeSet();
+				for (let new_node of ans.call(this, anm.call(this, via_vectors, current), current, via, gap)) {
+					if (filterNode(new_node)) new_vias_nodes.add(new_node);
+				}
+
+				// 处理普通移动
+				for (let neighbor of new_nodes) {
+					let neighbor_key = neighbor.toString();
+					let tentative_g = current_g + 1;
+
+					if (!g_score.has(neighbor_key) || tentative_g < g_score.get(neighbor_key)) {
+						g_score.set(neighbor_key, tentative_g);
+						f_score.set(neighbor_key, tentative_g + this.heuristic(neighbor, target_node));
+						open_set.enqueue(f_score.get(neighbor_key), neighbor);
+					}
+				}
+
+				// 处理过孔
+				if (new_vias_nodes.size) {
+					vias_nodes.set(current_g + 1 + this.m_viascost, new_vias_nodes);
+				}
+
+				// 处理延迟的过孔
+				let delay_nodes = vias_nodes.get(current_g + 1);
+				if (delay_nodes !== undefined) {
+					for (let neighbor of delay_nodes) {
+						if (gn.call(this, neighbor) === 0) {
+							let neighbor_key = neighbor.toString();
+							let tentative_g = current_g + this.m_viascost;
+
+							if (!g_score.has(neighbor_key) || tentative_g < g_score.get(neighbor_key)) {
+								g_score.set(neighbor_key, tentative_g);
+								f_score.set(neighbor_key, tentative_g + this.heuristic(neighbor, target_node));
+								open_set.enqueue(f_score.get(neighbor_key), neighbor);
+							}
+						}
+					}
+					vias_nodes.delete(current_g + 1);
+				}
+			}
+		}
+
+		//flood fill distances from starts till ends covered - BFS版本（保留作为回退）
 		mark_distances(vec, radius, via, gap, starts, ends, allowedLayers = null) {
 			let gn = this.get_node;
 			let sn = this.set_node;
@@ -543,6 +672,10 @@ var js_pcb = js_pcb || {};
 			this.m_paths = [];
 			this.sub_terminal_collision_lines();
 			let visited = new NodeSet();
+
+			// 尝试使用A*算法，如果失败则回退到BFS
+			let use_astar = true;
+
 			for (let index = 1; index < this.m_terminals.length; ++index) {
 				let ends = [];
 				let zRange = [];
@@ -565,20 +698,62 @@ var js_pcb = js_pcb || {};
 					let y = Math.trunc(this.m_terminals[index - 1][2][1] + 0.5);
 					visited.add([x, y, z]);
 				}
-				this.m_pcb.mark_distances(
-					this.m_pcb.m_routing_flood_vectors,
-					this.m_radius,
-					this.m_via,
-					this.m_gap,
-					visited,
-					ends,
-					this.m_allowedLayers,
-				);
+
+				// 尝试使用A*算法
+				if (use_astar && this.m_pcb.mark_distances_astar) {
+					this.m_pcb.mark_distances_astar(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						visited,
+						ends,
+						this.m_allowedLayers,
+					);
+				} else {
+					// 回退到BFS
+					this.m_pcb.mark_distances(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						visited,
+						ends,
+						this.m_allowedLayers,
+					);
+				}
+
 				let sorted_ends = [];
 				for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
 				sorted_ends.sort(function (s1, s2) {
 					return s1[0] - s2[0];
 				});
+
+				// 检查A*是否成功找到路径
+				if (sorted_ends[0][0] === 0 && use_astar) {
+					// A*失败，回退到BFS
+					if (this.m_pcb.m_verbosity >= 1) {
+						console.log('A* failed, falling back to BFS');
+					}
+					use_astar = false;
+					this.m_pcb.unmark_distances();
+					this.m_pcb.mark_distances(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						visited,
+						ends,
+						this.m_allowedLayers,
+					);
+					// 重新排序
+					sorted_ends = [];
+					for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
+					sorted_ends.sort(function (s1, s2) {
+						return s1[0] - s2[0];
+					});
+				}
+
 				let result = this.backtrack_path(visited, sorted_ends[0][1], this.m_radius, this.m_via, this.m_gap, this.m_allowedLayers);
 				this.m_pcb.unmark_distances();
 				if (!result[1]) {
