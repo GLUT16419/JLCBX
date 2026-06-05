@@ -907,22 +907,129 @@ var js_pcb = js_pcb || {};
 			for (let net of this.m_netlist) net.remove();
 		}
 
+		// ==================== 实时进度统计 ====================
+		m_progress = {
+			startTime: 0,
+			totalNets: 0,
+			routedNets: 0,
+			failedNets: 0,
+			currentNetName: '',
+			history: [],
+		};
+
+		// 初始化进度统计
+		initProgress() {
+			this.m_progress = {
+				startTime: Date.now(),
+				totalNets: this.m_netlist ? this.m_netlist.length : 0,
+				routedNets: 0,
+				failedNets: 0,
+				currentNetName: '',
+				history: [],
+			};
+		}
+
+		// 更新进度
+		updateProgress(netName, success) {
+			const now = Date.now();
+			const elapsed = now - this.m_progress.startTime;
+
+			if (success) {
+				this.m_progress.routedNets++;
+			} else {
+				this.m_progress.failedNets++;
+			}
+
+			this.m_progress.currentNetName = netName || '';
+
+			if ((this.m_progress.routedNets + this.m_progress.failedNets) % 5 === 0) {
+				this.m_progress.history.push({
+					time: elapsed,
+					routed: this.m_progress.routedNets,
+					failed: this.m_progress.failedNets,
+				});
+			}
+
+			return this.getProgressInfo();
+		}
+
+		// 获取进度信息
+		getProgressInfo() {
+			const total = this.m_progress.totalNets;
+			const routed = this.m_progress.routedNets;
+			const failed = this.m_progress.failedNets;
+			const processed = routed + failed;
+			const successRate = processed > 0 ? (routed / processed) * 100 : 0;
+			let remainingTime = '--';
+			if (processed > 3 && routed > 0) {
+				const elapsed = Date.now() - this.m_progress.startTime;
+				const avgTimePerNet = elapsed / processed;
+				const remaining = total - processed;
+				remainingTime = this.formatTime(avgTimePerNet * remaining);
+			}
+			const elapsedTime = this.formatTime(Date.now() - this.m_progress.startTime);
+
+			return {
+				total,
+				routed,
+				failed,
+				processed,
+				percent: total > 0 ? ((processed / total) * 100).toFixed(1) : '0.0',
+				successRate: successRate.toFixed(1),
+				remainingTime,
+				elapsedTime,
+				currentNet: this.m_progress.currentNetName,
+			};
+		}
+
+		// 格式化时间
+		formatTime(ms) {
+			if (ms < 1000) return '<1s';
+			const seconds = Math.floor(ms / 1000);
+			if (seconds < 60) return seconds + 's';
+			const minutes = Math.floor(seconds / 60);
+			const remainingSeconds = seconds % 60;
+			if (minutes < 60) return minutes + 'm ' + remainingSeconds + 's';
+			const hours = Math.floor(minutes / 60);
+			const remainingMinutes = minutes % 60;
+			return hours + 'h ' + remainingMinutes + 'm';
+		}
+
+		// 输出进度日志
+		logProgress(info, force = false) {
+			if (this.m_verbosity >= 1 || force) {
+				console.log(
+					`[进度] ${info.routed}/${info.total} (${info.percent}%) | 成功:${info.routed} 失败:${info.failed} | 成功率:${info.successRate}% | 剩余:${info.remainingTime} | 当前:${info.currentNet || '--'}`,
+				);
+			}
+		}
+
 		//attempt to route board within time
 		route(timeout) {
 			this.remove_netlist();
 			this.unmark_distances();
 			this.reset_areas();
 			this.shuffle_netlist();
+			this.initProgress(); // 初始化进度统计
+			const info = this.getProgressInfo();
+			console.log(`[开始布线] 总网络数:${info.total} | 策略:${this.m_strategy || '默认'}`);
+			this.logProgress(info);
+
 			this.m_netlist.sort(function (n1, n2) {
 				if (n1.m_area === n2.m_area) return n1.m_radius - n2.m_radius;
 				return n1.m_area - n2.m_area;
 			});
 			let hoisted_nets = new Set();
 			let index = 0;
-			//		let start_time = std::chrono::high_resolution_clock::now();
 			while (index < this.m_netlist.length) {
-				if (this.m_netlist[index].route()) index++;
-				else {
+				const netName = 'Net_' + index;
+				const success = this.m_netlist[index].route();
+				const progressInfo = this.updateProgress(netName, success);
+				this.logProgress(progressInfo);
+
+				if (success) {
+					index++;
+				} else {
 					if (index === 0) {
 						this.reset_areas();
 						this.shuffle_netlist();
@@ -947,11 +1054,13 @@ var js_pcb = js_pcb || {};
 						}
 					}
 				}
-				//			let end_time = std::chrono::high_resolution_clock::now();
-				//			std::chrono::duration<float> elapsed = end_time - start_time;
-				//			if (elapsed.count() >= timeout) return false;
+				// if (elapsed.count() >= timeout) return false;
 				if (this.m_verbosity >= 1) postMessage(this.output_pcb());
 			}
+			const finalInfo = this.getProgressInfo();
+			console.log(
+				`[布线完成] 成功:${finalInfo.routed}/${finalInfo.total} (${finalInfo.percent}%) | 失败:${finalInfo.failed} | 总耗时:${finalInfo.elapsedTime}`,
+			);
 			return true;
 		}
 

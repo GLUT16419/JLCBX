@@ -57,6 +57,34 @@ function pcb_thread(paramater_array) {
 	current_pcb.set_strategy(arg_strategy || 'balanced');
 	for (let track of pcb_data[1]) current_pcb.add_track(track);
 
+	// 发送进度更新
+	function sendProgressUpdate(pcb, sampleIndex, totalSamples) {
+		const progress = pcb.m_progress || {
+			total: pcb.m_netlist ? pcb.m_netlist.length : 0,
+			routed: 0,
+			failed: 0,
+		};
+		const processed = progress.routed + progress.failed;
+		const percent = progress.total > 0 ? ((processed / progress.total) * 100).toFixed(1) : '0.0';
+		const successRate = processed > 0 ? ((progress.routed / processed) * 100).toFixed(1) : '--';
+
+		postMessage({
+			type: 'progress',
+			data: {
+				sampleIndex: sampleIndex + 1,
+				totalSamples: totalSamples,
+				total: progress.total,
+				routed: progress.routed,
+				failed: progress.failed,
+				processed: processed,
+				percent: percent,
+				successRate: successRate,
+				elapsedTime: progress.elapsedTime || '--',
+				remainingTime: progress.remainingTime || '--',
+			},
+		});
+	}
+
 	//run number of samples of solution and pick best one
 	let best_pcb = current_pcb.output_pcb();
 	postMessage(best_pcb);
@@ -67,6 +95,9 @@ function pcb_thread(paramater_array) {
 			type: 'log',
 			message: `[采样 ${i + 1}/${arg_s}] 开始布线...`,
 		});
+
+		// 发送初始进度
+		sendProgressUpdate(current_pcb, i, arg_s);
 
 		let startTime = Date.now();
 		if (!current_pcb.route(arg_t)) {
@@ -81,6 +112,9 @@ function pcb_thread(paramater_array) {
 		let endTime = Date.now();
 		let duration = (endTime - startTime) / 1000;
 		let cost = current_pcb.cost();
+
+		// 发送最终进度
+		sendProgressUpdate(current_pcb, i, arg_s);
 
 		postMessage({
 			type: 'log',
@@ -103,6 +137,17 @@ function pcb_thread(paramater_array) {
 		type: 'log',
 		message: `所有采样完成。最佳代价: ${best_cost}`,
 	});
+
+	// 发送完成状态
+	postMessage({
+		type: 'progress',
+		data: {
+			complete: true,
+			total: current_pcb.m_netlist ? current_pcb.m_netlist.length : 0,
+			bestCost: best_cost,
+		},
+	});
+
 	postMessage(best_pcb);
 }
 

@@ -227,6 +227,7 @@ async function handleOnGo(evt) {
 		document.getElementById('go').disabled = true;
 		shouldSaveHistory = false;
 		startTimer();
+		resetProgressDisplay(); // 重置进度显示
 
 		//run pcb solver web worker thread, register output listner
 		if (worker !== null) worker.terminate();
@@ -251,6 +252,12 @@ async function handleOnGo(evt) {
 				// Handle log messages
 				if (event.data.type === 'log') {
 					appendLog(event.data.message);
+					return;
+				}
+
+				// Handle progress messages
+				if (event.data.type === 'progress') {
+					updateProgressDisplay(event.data.data);
 					return;
 				}
 
@@ -337,6 +344,50 @@ function appendLog(message) {
 		shouldSaveHistory = true;
 		stopTimer();
 	}
+}
+
+// 更新进度显示
+function updateProgressDisplay(data) {
+	if (data.complete) {
+		// 布线完成，重置UI
+		document.getElementById('progress-percent').textContent = '100%';
+		document.getElementById('progress-bar').style.width = '100%';
+		document.getElementById('progress-nets').textContent = `${data.total}/${data.total}`;
+		document.getElementById('progress-success').textContent = `${data.total}/0`;
+		document.getElementById('progress-rate').textContent = '--%';
+		document.getElementById('progress-elapsed').textContent = '--';
+		document.getElementById('progress-remaining').textContent = '--';
+		document.getElementById('progress-current').textContent = '完成';
+		return;
+	}
+
+	// 更新进度条
+	document.getElementById('progress-percent').textContent = data.percent + '%';
+	document.getElementById('progress-bar').style.width = data.percent + '%';
+
+	// 更新统计信息
+	document.getElementById('progress-nets').textContent = `${data.processed}/${data.total}`;
+	document.getElementById('progress-success').textContent = `${data.routed}/${data.failed}`;
+	document.getElementById('progress-rate').textContent = data.successRate + '%';
+
+	// 更新时间
+	document.getElementById('progress-elapsed').textContent = data.elapsedTime || '--';
+	document.getElementById('progress-remaining').textContent = data.remainingTime || '--';
+
+	// 更新当前采样信息
+	document.getElementById('progress-current').textContent = `采样 ${data.sampleIndex}/${data.totalSamples}`;
+}
+
+// 重置进度显示
+function resetProgressDisplay() {
+	document.getElementById('progress-percent').textContent = '0%';
+	document.getElementById('progress-bar').style.width = '0%';
+	document.getElementById('progress-nets').textContent = '0/0';
+	document.getElementById('progress-success').textContent = '0/0';
+	document.getElementById('progress-rate').textContent = '--%';
+	document.getElementById('progress-elapsed').textContent = '--';
+	document.getElementById('progress-remaining').textContent = '--';
+	document.getElementById('progress-current').textContent = '--';
 }
 
 //导出 SES 文件
