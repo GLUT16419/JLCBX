@@ -319,6 +319,582 @@ var js_pcb = js_pcb || {};
 			}
 		}
 
+		// ==================== 全局重排与推挤优化 ====================
+
+		// 全局优化：执行滑动窗口优化、拥挤区域推挤、整体松弛
+		globalOptimization() {
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 开始全局优化...');
+			}
+
+			let totalImprovement = 0;
+			const startCost = this.cost();
+
+			// 1. 滑动窗口优化
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 执行滑动窗口优化...');
+			}
+			const windowImprovement = this.slidingWindowOptimization();
+			totalImprovement += windowImprovement;
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 滑动窗口优化完成，改进: ' + windowImprovement);
+			}
+
+			// 2. 拥挤区域推挤
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 执行拥挤区域推挤...');
+			}
+			const crowdingImprovement = this.crowdingAreaRepush();
+			totalImprovement += crowdingImprovement;
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 拥挤区域推挤完成，改进: ' + crowdingImprovement);
+			}
+
+			// 3. 整体松弛
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 执行整体松弛...');
+			}
+			const relaxationImprovement = this.overallRelaxation();
+			totalImprovement += relaxationImprovement;
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 整体松弛完成，改进: ' + relaxationImprovement);
+			}
+
+			const endCost = this.cost();
+			const totalReduction = startCost - endCost;
+			const percentReduction = ((totalReduction / startCost) * 100).toFixed(2);
+
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 全局优化完成!');
+				console.log('[PCB]   初始代价: ' + startCost.toFixed(2));
+				console.log('[PCB]   最终代价: ' + endCost.toFixed(2));
+				console.log('[PCB]   总改进: ' + totalReduction.toFixed(2) + ' (' + percentReduction + '%)');
+			}
+
+			return {
+				startCost,
+				endCost,
+				totalReduction,
+				percentReduction,
+				windowImprovement,
+				crowdingImprovement,
+				relaxationImprovement,
+			};
+		}
+
+		// 滑动窗口优化：在局部窗口内重新优化路径
+		slidingWindowOptimization() {
+			let totalImprovement = 0;
+			const windowSize = 50; // 窗口大小（网格单位）
+			const stepSize = 25; // 滑动步长
+
+			// 获取所有网络的边界框
+			const bounds = this._getNetworkBounds();
+			if (!bounds) return 0;
+
+			// 在X方向滑动
+			for (let x = bounds.minX; x <= bounds.maxX - windowSize; x += stepSize) {
+				totalImprovement += this._optimizeWindow(x, x + windowSize, bounds.minY, bounds.maxY, 'x');
+			}
+
+			// 在Y方向滑动
+			for (let y = bounds.minY; y <= bounds.maxY - windowSize; y += stepSize) {
+				totalImprovement += this._optimizeWindow(bounds.minX, bounds.maxX, y, y + windowSize, 'y');
+			}
+
+			return totalImprovement;
+		}
+
+		// 优化指定窗口区域
+		_optimizeWindow(minX, maxX, minY, maxY, direction) {
+			let improvement = 0;
+			const affectedNets = [];
+
+			// 找到与窗口相交的所有网络路径
+			for (let net of this.m_netlist) {
+				if (!net.m_paths || net.m_paths.length === 0) continue;
+
+				let netAffected = false;
+				for (let path of net.m_paths) {
+					for (let point of path) {
+						if (point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY) {
+							netAffected = true;
+							break;
+						}
+					}
+					if (netAffected) break;
+				}
+
+				if (netAffected) {
+					affectedNets.push(net);
+				}
+			}
+
+			// 对受影响的网络进行局部重路由
+			for (let net of affectedNets) {
+				const beforeCost = this._estimateNetCost(net);
+				const optimized = this._localReroute(net, minX, maxX, minY, maxY);
+				if (optimized) {
+					const afterCost = this._estimateNetCost(net);
+					improvement += beforeCost - afterCost;
+				}
+			}
+
+			return improvement;
+		}
+
+		// 估算单个网络的代价
+		_estimateNetCost(net) {
+			let cost = 0;
+			if (!net.m_paths) return 0;
+
+			for (let path of net.m_paths) {
+				for (let i = 1; i < path.length; i++) {
+					const p1 = path[i - 1];
+					const p2 = path[i];
+					cost += this._pointDistance(p1, p2);
+					// 过孔代价
+					if (p1[2] !== p2[2]) {
+						cost += this.m_via_cost || 16;
+					}
+				}
+			}
+			return cost;
+		}
+
+		// 计算两点距离
+		_pointDistance(p1, p2) {
+			const dx = p2[0] - p1[0];
+			const dy = p2[1] - p1[1];
+			return Math.sqrt(dx * dx + dy * dy);
+		}
+
+		// 局部重路由（在指定区域内）
+		_localReroute(net, minX, maxX, minY, maxY) {
+			if (!net.m_paths || net.m_paths.length === 0) return false;
+
+			let improved = false;
+
+			for (let pathIndex = 0; pathIndex < net.m_paths.length; pathIndex++) {
+				const path = net.m_paths[pathIndex];
+				if (path.length < 3) continue;
+
+				// 检查路径是否与窗口相交
+				let hasIntersection = false;
+				for (let point of path) {
+					if (point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY) {
+						hasIntersection = true;
+						break;
+					}
+				}
+
+				if (!hasIntersection) continue;
+
+				// 尝试简化路径
+				const simplified = this._simplifyPathInWindow(path, minX, maxX, minY, maxY);
+				if (simplified.length < path.length) {
+					// 更新路径
+					net.sub_paths_collision_lines();
+					net.m_paths[pathIndex] = simplified;
+					net.add_paths_collision_lines();
+					improved = true;
+				}
+			}
+
+			return improved;
+		}
+
+		// 在窗口内简化路径
+		_simplifyPathInWindow(path, minX, maxX, minY, maxY) {
+			if (path.length <= 2) return path;
+
+			let simplified = [path[0]];
+			let i = 0;
+
+			while (i < path.length - 1) {
+				const current = path[i];
+				let bestReach = i + 1;
+
+				// 尝试跳到更远的点
+				for (let j = i + 2; j < path.length; j++) {
+					const target = path[j];
+
+					// 检查路径段是否与窗口相交
+					const intersectsWindow = this._segmentIntersectsWindow(current, target, minX, maxX, minY, maxY);
+
+					if (!intersectsWindow) {
+						// 检查是否可以直接连线
+						if (current[2] === target[2] && this._canConnectDirectly(current, target)) {
+							bestReach = j;
+						}
+					} else {
+						break;
+					}
+				}
+
+				simplified.push(path[bestReach]);
+				i = bestReach;
+			}
+
+			return simplified;
+		}
+
+		// 检查线段是否与窗口相交
+		_segmentIntersectsWindow(p1, p2, minX, maxX, minY, maxY) {
+			// 简单检查：两个端点都在窗口外时，检查线段是否穿过窗口
+			const p1Inside = p1[0] >= minX && p1[0] <= maxX && p1[1] >= minY && p1[1] <= maxY;
+			const p2Inside = p2[0] >= minX && p2[0] <= maxX && p2[1] >= minY && p2[1] <= maxY;
+
+			return p1Inside || p2Inside;
+		}
+
+		// 检查是否可以直接连接两点
+		_canConnectDirectly(p1, p2) {
+			// 检查是否有碰撞
+			if (p1[2] !== p2[2]) {
+				// 过孔连接，需要检查
+				return this.m_layers.hit_line(p1, p2, 0, 0);
+			}
+
+			// 创建临时线段检查碰撞
+			const l = {
+				m_p1: [p1[0], p1[1]],
+				m_p2: [p2[0], p2[1]],
+				m_radius: 0,
+				m_gap: 0,
+			};
+
+			// 简化碰撞检测：如果两点相同层且都是直线，直接连接
+			return p1[0] === p2[0] || p1[1] === p2[1];
+		}
+
+		// 拥挤区域推挤：检测并优化拥挤区域
+		crowdingAreaRepush() {
+			let totalImprovement = 0;
+			const gridSize = 100; // 网格大小
+			const densityThreshold = 5; // 密度阈值
+
+			// 统计每个网格的线段密度
+			const densityMap = this._calculateDensityMap(gridSize);
+
+			// 找到拥挤区域
+			const crowdedAreas = [];
+			for (const [key, density] of Object.entries(densityMap)) {
+				if (density > densityThreshold) {
+					const [x, y] = key.split(',').map(Number);
+					crowdedAreas.push({ x, y, density });
+				}
+			}
+
+			if (this.m_verbosity >= 2) {
+				console.log('[PCB] 发现 ' + crowdedAreas.length + ' 个拥挤区域');
+			}
+
+			// 对每个拥挤区域进行推挤优化
+			for (const area of crowdedAreas) {
+				const improvement = this._repushCrowdedArea(area.x, area.y, area.x + gridSize, area.y + gridSize);
+				totalImprovement += improvement;
+			}
+
+			return totalImprovement;
+		}
+
+		// 计算密度图
+		_calculateDensityMap(gridSize) {
+			const densityMap = {};
+
+			for (let net of this.m_netlist) {
+				if (!net.m_paths) continue;
+
+				for (let path of net.m_paths) {
+					for (let i = 1; i < path.length; i++) {
+						const p = path[i];
+						const gridX = Math.floor(p[0] / gridSize);
+						const gridY = Math.floor(p[1] / gridSize);
+						const key = gridX + ',' + gridY;
+
+						if (!densityMap[key]) {
+							densityMap[key] = 0;
+						}
+						densityMap[key]++;
+					}
+				}
+			}
+
+			return densityMap;
+		}
+
+		// 推挤拥挤区域
+		_repushCrowdedArea(minX, maxX, minY, maxY) {
+			let improvement = 0;
+			const affectedNets = [];
+
+			// 收集受影响的网络
+			for (let net of this.m_netlist) {
+				if (!net.m_paths || net.m_paths.length === 0) continue;
+
+				for (let path of net.m_paths) {
+					for (let point of path) {
+						if (point[0] >= minX && point[0] < maxX && point[1] >= minY && point[1] < maxY) {
+							affectedNets.push(net);
+							break;
+						}
+					}
+				}
+			}
+
+			// 尝试将部分路径移出拥挤区域
+			for (let net of affectedNets) {
+				const beforeCost = this._estimateNetCost(net);
+
+				// 移除网络
+				net.remove();
+
+				// 重新布线，但限制在拥挤区域外
+				const success = this._rerouteNetInArea(net, minX, maxX, minY, maxY, true);
+
+				if (success) {
+					const afterCost = this._estimateNetCost(net);
+					improvement += Math.max(0, beforeCost - afterCost);
+				} else {
+					// 恢复原路径
+					net.add_paths_collision_lines();
+				}
+			}
+
+			return improvement;
+		}
+
+		// 在指定区域限制下重路由网络
+		_rerouteNetInArea(net, minX, maxX, minY, maxY, avoidArea) {
+			if (!net.m_terminals || net.m_terminals.length < 2) return false;
+
+			// 简化实现：尝试局部优化
+			if (!net.m_paths || net.m_paths.length === 0) return false;
+
+			let improved = false;
+
+			for (let i = 0; i < net.m_paths.length; i++) {
+				const path = net.m_paths[i];
+				if (path.length < 3) continue;
+
+				// 检查是否需要优化
+				let needsOptimization = false;
+				for (let point of path) {
+					if (point[0] >= minX && point[0] < maxX && point[1] >= minY && point[1] < maxY) {
+						needsOptimization = true;
+						break;
+					}
+				}
+
+				if (!needsOptimization) continue;
+
+				// 尝试将拥挤区域的点向外推移
+				const optimizedPath = this._pushPointsOut(path, minX, maxX, minY, maxY, avoidArea);
+
+				if (optimizedPath && optimizedPath.length > 0) {
+					net.m_paths[i] = optimizedPath;
+					net.add_paths_collision_lines();
+					improved = true;
+				}
+			}
+
+			return improved;
+		}
+
+		// 将点推出拥挤区域
+		_pushPointsOut(path, minX, maxX, minY, maxY, avoidArea) {
+			if (path.length < 2) return path;
+
+			let optimized = [path[0]];
+
+			for (let i = 1; i < path.length; i++) {
+				const current = path[i];
+				let newPoint = current;
+
+				if (avoidArea && current[0] >= minX && current[0] < maxX && current[1] >= minY && current[1] < maxY) {
+					// 计算推到哪个方向
+					const centerX = (minX + maxX) / 2;
+					const centerY = (minY + maxY) / 2;
+					const dx = current[0] - centerX;
+					const dy = current[1] - centerY;
+
+					// 选择推开距离
+					const pushDistance = 20;
+					const angle = Math.atan2(dy, dx);
+
+					// 推向最近的边界
+					let bestX = current[0];
+					let bestY = current[1];
+					let bestDist = Infinity;
+
+					// 检查四个边界
+					const boundaries = [
+						[minX, current[1]], // 左边界
+						[maxX, current[1]], // 右边界
+						[current[0], minY], // 下边界
+						[current[0], maxY], // 上边界
+					];
+
+					for (const [bx, by] of boundaries) {
+						// 简单检查：是否可以直接到达
+						if (current[2] === path[0][2]) {
+							const dist = Math.sqrt((bx - current[0]) ** 2 + (by - current[1]) ** 2);
+							if (dist < bestDist) {
+								bestDist = dist;
+								bestX = bx;
+								bestY = by;
+							}
+						}
+					}
+
+					newPoint = [bestX, bestY, current[2]];
+				}
+
+				optimized.push(newPoint);
+			}
+
+			return optimized;
+		}
+
+		// 整体松弛：优化所有网络的整体布局
+		overallRelaxation() {
+			let totalImprovement = 0;
+			const iterations = 3; // 松弛迭代次数
+
+			if (this.m_verbosity >= 2) {
+				console.log('[PCB] 开始整体松弛，共 ' + iterations + ' 次迭代');
+			}
+
+			for (let iter = 0; iter < iterations; iter++) {
+				if (this.m_verbosity >= 2) {
+					console.log('[PCB] 松弛迭代 ' + (iter + 1) + '/' + iterations);
+				}
+
+				let iterationImprovement = 0;
+
+				// 按优先级处理网络
+				const sortedNets = [...this.m_netlist].sort((a, b) => {
+					// 优先松弛高代价网络
+					return this._estimateNetCost(b) - this._estimateNetCost(a);
+				});
+
+				for (let net of sortedNets) {
+					if (!net.m_paths || net.m_paths.length === 0) continue;
+
+					const beforeCost = this._estimateNetCost(net);
+
+					// 移除网络
+					net.remove();
+
+					// 尝试重新优化
+					const improved = this._relaxNetPath(net);
+
+					if (improved) {
+						const afterCost = this._estimateNetCost(net);
+						iterationImprovement += Math.max(0, beforeCost - afterCost);
+					} else {
+						// 恢复
+						net.add_paths_collision_lines();
+					}
+				}
+
+				totalImprovement += iterationImprovement;
+
+				if (this.m_verbosity >= 2) {
+					console.log('[PCB] 迭代 ' + (iter + 1) + ' 改进: ' + iterationImprovement.toFixed(2));
+				}
+
+				// 如果没有改进，提前结束
+				if (iterationImprovement < 10) break;
+			}
+
+			return totalImprovement;
+		}
+
+		// 松弛单个网络的路径
+		_relaxNetPath(net) {
+			if (!net.m_paths || net.m_paths.length === 0) return false;
+
+			let anyImproved = false;
+
+			for (let i = 0; i < net.m_paths.length; i++) {
+				const path = net.m_paths[i];
+				if (path.length < 3) continue;
+
+				// 尝试简化路径
+				const simplified = this._relaxPath(path);
+
+				if (simplified.length < path.length) {
+					net.m_paths[i] = simplified;
+					net.add_paths_collision_lines();
+					anyImproved = true;
+				}
+			}
+
+			return anyImproved;
+		}
+
+		// 松弛路径（移除冗余点并尝试优化）
+		_relaxPath(path) {
+			if (path.length <= 2) return path;
+
+			let relaxed = [path[0]];
+
+			for (let i = 1; i < path.length - 1; i++) {
+				const prev = relaxed[relaxed.length - 1];
+				const curr = path[i];
+				const next = path[i + 1];
+
+				// 检查是否可以跳过当前点
+				if (prev[2] === curr[2] && curr[2] === next[2]) {
+					// 同层，检查是否共线
+					const dx1 = curr[0] - prev[0];
+					const dy1 = curr[1] - prev[1];
+					const dx2 = next[0] - curr[0];
+					const dy2 = next[1] - curr[1];
+
+					// 检查是否同方向
+					const sameDir = dx1 * dx2 >= 0 && dy1 * dy2 >= 0;
+
+					if (sameDir && this.areCollinear(prev, curr, next)) {
+						// 可以跳过当前点
+						continue;
+					}
+				}
+
+				relaxed.push(curr);
+			}
+
+			relaxed.push(path[path.length - 1]);
+			return relaxed;
+		}
+
+		// 获取所有网络的边界框
+		_getNetworkBounds() {
+			let minX = Infinity,
+				minY = Infinity;
+			let maxX = -Infinity,
+				maxY = -Infinity;
+
+			for (let net of this.m_netlist) {
+				if (!net.m_paths) continue;
+
+				for (let path of net.m_paths) {
+					for (let point of path) {
+						minX = Math.min(minX, point[0]);
+						minY = Math.min(minY, point[1]);
+						maxX = Math.max(maxX, point[0]);
+						maxY = Math.max(maxY, point[1]);
+					}
+				}
+			}
+
+			if (minX === Infinity) return null;
+
+			return { minX, minY, maxX, maxY };
+		}
+
 		//add net
 		add_track(track) {
 			let track_radius, via_radius, track_gap, terminals, paths, allowedLayers;
