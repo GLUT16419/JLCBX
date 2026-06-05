@@ -244,6 +244,81 @@ var js_pcb = js_pcb || {};
 			return params;
 		}
 
+		// 策略配置
+		m_strategy = 'balanced'; // 默认策略
+
+		// 设置布线策略
+		set_strategy(strategy) {
+			this.m_strategy = strategy;
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 布线策略已设置为: ' + strategy);
+			}
+			// 根据策略调整参数
+			this._applyStrategyParams();
+		}
+
+		// 策略参数配置
+		_getStrategyConfigs() {
+			return {
+				'conservative': {
+					name: '保守策略',
+					clearance: 1.3,
+					viaCost: 0.7,
+					preferTop: true,
+					avoidInner: false,
+					description: '严格遵守间距，优先使用顶层',
+				},
+				'aggressive': {
+					name: '激进策略',
+					clearance: 0.8,
+					viaCost: 1.5,
+					preferTop: false,
+					preferBottom: true,
+					description: '宽松间距，优先使用底层',
+				},
+				'balanced': {
+					name: '平衡策略',
+					clearance: 1.0,
+					viaCost: 1.0,
+					description: '平衡过孔使用和线长',
+				},
+				'area-priority': {
+					name: '面积优先',
+					clearance: 1.0,
+					viaCost: 0.5,
+					description: '优先使用自由区域，灵活使用过孔',
+				},
+				'shortest-path': {
+					name: '最短路径',
+					clearance: 1.0,
+					viaCost: 2.0,
+					description: '纯粹追求线长最短，避免过孔',
+				},
+			};
+		}
+
+		// 应用策略参数
+		_applyStrategyParams() {
+			const configs = this._getStrategyConfigs();
+			const config = configs[this.m_strategy] || configs['balanced'];
+
+			// 记录原始值以便恢复
+			if (!this._originalViaCost) {
+				this._originalViaCost = this.m_via_cost;
+			}
+
+			// 调整参数
+			if (config.viaCost) {
+				this.m_via_cost = Math.round(this._originalViaCost * config.viaCost);
+			}
+
+			if (this.m_verbosity >= 1) {
+				console.log('[PCB] 应用 ' + config.name + ' 参数:');
+				console.log('[PCB]   - 清除间距: ' + (config.clearance * 100).toFixed(0) + '%');
+				console.log('[PCB]   - 过孔代价: ' + this.m_via_cost);
+			}
+		}
+
 		//add net
 		add_track(track) {
 			let track_radius, via_radius, track_gap, terminals, paths, allowedLayers;

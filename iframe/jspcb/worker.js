@@ -20,8 +20,8 @@ function pcb_thread(paramater_array) {
 	}
 
 	//args
-	let pcb_data, arg_t, arg_v, arg_s, arg_z, arg_r, arg_q, arg_d, arg_fr, arg_xr, arg_yr, arg_45deg;
-	[pcb_data, arg_t, arg_v, arg_s, arg_z, arg_r, arg_q, arg_d, arg_fr, arg_xr, arg_yr, arg_45deg] = paramater_array;
+	let pcb_data, arg_t, arg_v, arg_s, arg_z, arg_r, arg_q, arg_d, arg_fr, arg_xr, arg_yr, arg_45deg, arg_strategy;
+	[pcb_data, arg_t, arg_v, arg_s, arg_z, arg_r, arg_q, arg_d, arg_fr, arg_xr, arg_yr, arg_45deg, arg_strategy] = paramater_array;
 	let enable_45deg = arg_45deg === 1;
 
 	//create flooding and backtracking vectors
@@ -39,7 +39,7 @@ function pcb_thread(paramater_array) {
 
 	let routing_path_vectorss = [
 		gen_vectors(path_range, path_range_x_even_layer, path_range, enable_45deg),
-		gen_vectors(path_range, path_range, path_range_y_odd_layer, enable_45deg),
+		gen_vectors(path_range, path_range, flood_range_y_odd_layer, enable_45deg),
 	];
 
 	//choose distance metric function
@@ -53,6 +53,8 @@ function pcb_thread(paramater_array) {
 
 	//create pcb object and populate with tracks from input
 	let current_pcb = new js_pcb.Pcb(pcb_data[0], routing_flood_vectorss, routing_path_vectorss, dfuncs[arg_d], arg_r, arg_v, arg_q, arg_z);
+	// 设置布线策略
+	current_pcb.set_strategy(arg_strategy || 'balanced');
 	for (let track of pcb_data[1]) current_pcb.add_track(track);
 
 	//run number of samples of solution and pick best one

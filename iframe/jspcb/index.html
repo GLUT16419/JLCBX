@@ -888,6 +888,20 @@
 
 						<div class="control-group">
 							<div class="control-header">
+								<label>布线策略</label>
+								<select id="strategy-select" style="flex: 1; min-width: 100px">
+									<option value="balanced">平衡策略 (默认)</option>
+									<option value="conservative">保守策略</option>
+									<option value="aggressive">激进策略</option>
+									<option value="area-priority">面积优先</option>
+									<option value="shortest-path">最短路径</option>
+								</select>
+							</div>
+							<div class="control-desc">选择不同的布线策略，平衡成功率和质量</div>
+						</div>
+
+						<div class="control-group">
+							<div class="control-header">
 								<label for="arg_t">超时时间 (Timeout)</label>
 								<input id="arg_t" type="number" min="0" max="10000" step="1" value="600" />
 							</div>
