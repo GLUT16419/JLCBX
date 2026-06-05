@@ -420,6 +420,196 @@ var js_pcb = js_pcb || {};
 			return 1;
 		}
 
+		// 双向A*搜索算法 - 从起点和终点同时搜索，在中间相遇
+		mark_distances_bidirectional(vec, radius, via, gap, starts, ends, allowedLayers = null) {
+			let gn = this.get_node;
+			let sn = this.set_node;
+			let anm = this.all_not_marked;
+			let ans = this.all_not_shorting;
+			let via_vectors = this.m_via_vectors;
+
+			// 过滤节点函数：只允许在allowedLayers中的层
+			const filterNode = (node) => {
+				if (!allowedLayers || allowedLayers.length === 0) return true;
+				return allowedLayers.includes(node[2]);
+			};
+
+			// 正向搜索（从起点）
+			let forward_open = new PriorityQueue();
+			let forward_g = new Map();
+			let forward_f = new Map();
+			let forward_visited = new Set();
+
+			// 反向搜索（从终点）
+			let backward_open = new PriorityQueue();
+			let backward_g = new Map();
+			let backward_f = new Map();
+			let backward_visited = new Set();
+
+			// 找到最近的起点-终点对
+			let start_node = starts[0];
+			let end_node = ends[0];
+			let min_dist = Infinity;
+			for (let start of starts) {
+				for (let end of ends) {
+					let dist = this.heuristic(start, end);
+					if (dist < min_dist) {
+						min_dist = dist;
+						start_node = start;
+						end_node = end;
+					}
+				}
+			}
+
+			// 初始化正向搜索
+			for (let start of starts) {
+				let key = start.toString();
+				forward_g.set(key, 0);
+				forward_f.set(key, this.heuristic(start, end_node));
+				forward_open.enqueue(forward_f.get(key), start);
+			}
+
+			// 初始化反向搜索
+			for (let end of ends) {
+				let key = end.toString();
+				backward_g.set(key, 0);
+				backward_f.set(key, this.heuristic(end, start_node));
+				backward_open.enqueue(backward_f.get(key), end);
+			}
+
+			let forward_vias = new Map();
+			let backward_vias = new Map();
+			let meeting_node = null;
+
+			while (!forward_open.isEmpty() || !backward_open.isEmpty() || forward_vias.size || backward_vias.size) {
+				// 正向搜索一步
+				if (!forward_open.isEmpty()) {
+					let current = forward_open.dequeue();
+					let current_key = current.toString();
+					let current_g = forward_g.get(current_key);
+
+					// 检查是否与反向搜索相遇
+					if (backward_visited.has(current_key)) {
+						meeting_node = current;
+						break;
+					}
+
+					if (!forward_visited.has(current_key)) {
+						forward_visited.add(current_key);
+						sn.call(this, current, current_g + 1); // 标记正向距离
+
+						// 探索邻居
+						let new_nodes = new NodeSet();
+						for (let new_node of ans.call(this, anm.call(this, vec, current), current, radius, gap)) {
+							if (filterNode(new_node)) new_nodes.add(new_node);
+						}
+
+						let new_vias = new NodeSet();
+						for (let new_node of ans.call(this, anm.call(this, via_vectors, current), current, via, gap)) {
+							if (filterNode(new_node)) new_vias.add(new_node);
+						}
+
+						for (let neighbor of new_nodes) {
+							let neighbor_key = neighbor.toString();
+							let tentative_g = current_g + 1;
+							if (!forward_g.has(neighbor_key) || tentative_g < forward_g.get(neighbor_key)) {
+								forward_g.set(neighbor_key, tentative_g);
+								forward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
+								forward_open.enqueue(forward_f.get(neighbor_key), neighbor);
+							}
+						}
+
+						if (new_vias.size) {
+							forward_vias.set(current_g + 1 + this.m_viascost, new_vias);
+						}
+
+						let delay_nodes = forward_vias.get(current_g + 1);
+						if (delay_nodes !== undefined) {
+							for (let neighbor of delay_nodes) {
+								if (!forward_visited.has(neighbor.toString())) {
+									let neighbor_key = neighbor.toString();
+									let tentative_g = current_g + this.m_viascost;
+									if (!forward_g.has(neighbor_key) || tentative_g < forward_g.get(neighbor_key)) {
+										forward_g.set(neighbor_key, tentative_g);
+										forward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, end_node));
+										forward_open.enqueue(forward_f.get(neighbor_key), neighbor);
+									}
+								}
+							}
+							forward_vias.delete(current_g + 1);
+						}
+					}
+				}
+
+				// 反向搜索一步
+				if (!backward_open.isEmpty()) {
+					let current = backward_open.dequeue();
+					let current_key = current.toString();
+					let current_g = backward_g.get(current_key);
+
+					// 检查是否与正向搜索相遇
+					if (forward_visited.has(current_key)) {
+						meeting_node = current;
+						break;
+					}
+
+					if (!backward_visited.has(current_key)) {
+						backward_visited.add(current_key);
+
+						// 探索邻居
+						let new_nodes = new NodeSet();
+						for (let new_node of ans.call(this, anm.call(this, vec, current), current, radius, gap)) {
+							if (filterNode(new_node)) new_nodes.add(new_node);
+						}
+
+						let new_vias = new NodeSet();
+						for (let new_node of ans.call(this, anm.call(this, via_vectors, current), current, via, gap)) {
+							if (filterNode(new_node)) new_vias.add(new_node);
+						}
+
+						for (let neighbor of new_nodes) {
+							let neighbor_key = neighbor.toString();
+							let tentative_g = current_g + 1;
+							if (!backward_g.has(neighbor_key) || tentative_g < backward_g.get(neighbor_key)) {
+								backward_g.set(neighbor_key, tentative_g);
+								backward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, start_node));
+								backward_open.enqueue(backward_f.get(neighbor_key), neighbor);
+							}
+						}
+
+						if (new_vias.size) {
+							backward_vias.set(current_g + 1 + this.m_viascost, new_vias);
+						}
+
+						let delay_nodes = backward_vias.get(current_g + 1);
+						if (delay_nodes !== undefined) {
+							for (let neighbor of delay_nodes) {
+								if (!backward_visited.has(neighbor.toString())) {
+									let neighbor_key = neighbor.toString();
+									let tentative_g = current_g + this.m_viascost;
+									if (!backward_g.has(neighbor_key) || tentative_g < backward_g.get(neighbor_key)) {
+										backward_g.set(neighbor_key, tentative_g);
+										backward_f.set(neighbor_key, tentative_g + this.heuristic(neighbor, start_node));
+										backward_open.enqueue(backward_f.get(neighbor_key), neighbor);
+									}
+								}
+							}
+							backward_vias.delete(current_g + 1);
+						}
+					}
+				}
+			}
+
+			// 如果相遇，确保终点被标记
+			if (meeting_node) {
+				for (let end of ends) {
+					if (gn.call(this, end) === 0) {
+						sn.call(this, end, forward_g.get(end.toString()) || backward_g.get(end.toString()) + 1 || 1);
+					}
+				}
+			}
+		}
+
 		//flood fill distances from starts till ends covered - BFS版本（保留作为回退）
 		mark_distances(vec, radius, via, gap, starts, ends, allowedLayers = null) {
 			let gn = this.get_node;
@@ -693,7 +883,8 @@ var js_pcb = js_pcb || {};
 			this.sub_terminal_collision_lines();
 			let visited = new NodeSet();
 
-			// 尝试使用A*算法，如果失败则回退到BFS
+			// 搜索算法优先级: 双向搜索 -> A* -> BFS
+			let use_bidirectional = true;
 			let use_astar = true;
 
 			for (let index = 1; index < this.m_terminals.length; ++index) {
@@ -719,8 +910,19 @@ var js_pcb = js_pcb || {};
 					visited.add([x, y, z]);
 				}
 
-				// 尝试使用A*算法
-				if (use_astar && this.m_pcb.mark_distances_astar) {
+				// 尝试使用双向搜索
+				if (use_bidirectional && this.m_pcb.mark_distances_bidirectional) {
+					this.m_pcb.mark_distances_bidirectional(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						visited,
+						ends,
+						this.m_allowedLayers,
+					);
+				} else if (use_astar && this.m_pcb.mark_distances_astar) {
+					// 回退到A*
 					this.m_pcb.mark_distances_astar(
 						this.m_pcb.m_routing_flood_vectors,
 						this.m_radius,
@@ -749,9 +951,36 @@ var js_pcb = js_pcb || {};
 					return s1[0] - s2[0];
 				});
 
+				// 检查双向搜索是否成功
+				if (sorted_ends[0][0] === 0 && use_bidirectional) {
+					if (this.m_pcb.m_verbosity >= 1) {
+						console.log('Bidirectional search failed, falling back to A*');
+					}
+					use_bidirectional = false;
+					this.m_pcb.unmark_distances();
+
+					// 尝试A*
+					if (use_astar && this.m_pcb.mark_distances_astar) {
+						this.m_pcb.mark_distances_astar(
+							this.m_pcb.m_routing_flood_vectors,
+							this.m_radius,
+							this.m_via,
+							this.m_gap,
+							visited,
+							ends,
+							this.m_allowedLayers,
+						);
+					}
+
+					sorted_ends = [];
+					for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
+					sorted_ends.sort(function (s1, s2) {
+						return s1[0] - s2[0];
+					});
+				}
+
 				// 检查A*是否成功找到路径
 				if (sorted_ends[0][0] === 0 && use_astar) {
-					// A*失败，回退到BFS
 					if (this.m_pcb.m_verbosity >= 1) {
 						console.log('A* failed, falling back to BFS');
 					}
