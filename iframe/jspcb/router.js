@@ -701,6 +701,137 @@ var js_pcb = js_pcb || {};
 			});
 		}
 
+		// 判断是否是电源网络
+		isPowerNet(net) {
+			if (!net.m_name) return false;
+			const name = net.m_name.toLowerCase();
+			const powerPatterns = [/^vcc$/, /^vdd$/, /^vss$/, /^gnd$/, /^\+\d+\.?\d*v$/, /^vbat$/, /^vout$/, /^vin$/, /^power$/, /^pwr$/];
+			return powerPatterns.some((p) => p.test(name));
+		}
+
+		// 判断是否是时钟网络
+		isClockNet(net) {
+			if (!net.m_name) return false;
+			const name = net.m_name.toLowerCase();
+			return name.includes('clk') || name.includes('clock') || name.includes('sync');
+		}
+
+		// 判断是否是关键信号网络
+		isCriticalNet(net) {
+			if (!net.m_name) return false;
+			const name = net.m_name.toLowerCase();
+			return name.includes('rst') || name.includes('reset') || name.includes('irq') || name.includes('interrupt');
+		}
+
+		// 按网络类型分组
+		groupByType() {
+			let groups = {
+				power: [],
+				clock: [],
+				critical: [],
+				signal: [],
+			};
+
+			for (let net of this.m_netlist) {
+				if (this.isPowerNet(net)) {
+					groups.power.push(net);
+				} else if (this.isClockNet(net)) {
+					groups.clock.push(net);
+				} else if (this.isCriticalNet(net)) {
+					groups.critical.push(net);
+				} else {
+					groups.signal.push(net);
+				}
+			}
+			return groups;
+		}
+
+		// 按面积分组（批量处理）
+		groupByArea(binSize = 1000) {
+			let groups = {};
+			for (let net of this.m_netlist) {
+				const bin = Math.floor(net.m_area / binSize) * binSize;
+				if (!groups[bin]) groups[bin] = [];
+				groups[bin].push(net);
+			}
+			return groups;
+		}
+
+		// 按引脚数量分组
+		groupByPinCount() {
+			let groups = {
+				small: [], // 2-3个引脚
+				medium: [], // 4-10个引脚
+				large: [], // 11-30个引脚
+				huge: [], // 30+个引脚
+			};
+
+			for (let net of this.m_netlist) {
+				const count = net.m_terminals ? net.m_terminals.length : 0;
+				if (count <= 3) {
+					groups.small.push(net);
+				} else if (count <= 10) {
+					groups.medium.push(net);
+				} else if (count <= 30) {
+					groups.large.push(net);
+				} else {
+					groups.huge.push(net);
+				}
+			}
+			return groups;
+		}
+
+		// 批量布线一组网络
+		routeGroup(nets) {
+			let success = true;
+			let visited = new NodeSet();
+
+			for (let net of nets) {
+				net.sub_terminal_collision_lines();
+
+				let netVisited = new NodeSet();
+				let routed = net.routeWithVisited(visited, netVisited);
+
+				if (!routed) {
+					success = false;
+					break;
+				}
+
+				for (let node of netVisited) visited.add(node);
+				net.add_paths_collision_lines();
+				net.add_terminal_collision_lines();
+			}
+
+			return success;
+		}
+
+		// 分组批量布线策略（先布关键组）
+		routeWithGrouping() {
+			let groups = this.groupByType();
+
+			// 先布电源网络（重要）
+			if (groups.power.length > 0) {
+				this.routeGroup(groups.power);
+			}
+
+			// 再布时钟网络
+			if (groups.clock.length > 0) {
+				this.routeGroup(groups.clock);
+			}
+
+			// 然后是关键信号
+			if (groups.critical.length > 0) {
+				this.routeGroup(groups.critical);
+			}
+
+			// 最后是普通信号
+			if (groups.signal.length > 0) {
+				this.routeGroup(groups.signal);
+			}
+
+			return true;
+		}
+
 		//shuffle order of netlist
 		shuffle_netlist() {
 			this.m_netlist.shuffle();
@@ -904,6 +1035,101 @@ var js_pcb = js_pcb || {};
 				}
 				path_node = nearer_nodes[0];
 			}
+		}
+
+		// 带访问集合的布线方法
+		routeWithVisited(globalVisited, localVisited) {
+			if (this.m_radius === 0.0) return true;
+			this.m_paths = [];
+			this.sub_terminal_collision_lines();
+
+			let use_bidirectional = false;
+			let use_astar = true;
+
+			for (let index = 1; index < this.m_terminals.length; ++index) {
+				let ends = [];
+				let zRange = [];
+				if (this.m_allowedLayers && this.m_allowedLayers.length > 0) {
+					zRange = this.m_allowedLayers;
+				} else {
+					for (let z = 0; z < this.m_pcb.m_depth; ++z) zRange.push(z);
+				}
+				for (let z of zRange) {
+					let x = Math.trunc(this.m_terminals[index][2][0] + 0.5);
+					let y = Math.trunc(this.m_terminals[index][2][1] + 0.5);
+					ends.push([x, y, z]);
+				}
+
+				for (let z of zRange) {
+					let x = Math.trunc(this.m_terminals[index - 1][2][0] + 0.5);
+					let y = Math.trunc(this.m_terminals[index - 1][2][1] + 0.5);
+					localVisited.add([x, y, z]);
+					globalVisited.add([x, y, z]);
+				}
+
+				if (use_astar && this.m_pcb.mark_distances_astar) {
+					this.m_pcb.mark_distances_astar(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						localVisited,
+						ends,
+						this.m_allowedLayers,
+					);
+				} else {
+					this.m_pcb.mark_distances(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						localVisited,
+						ends,
+						this.m_allowedLayers,
+					);
+				}
+
+				let sorted_ends = [];
+				for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
+				sorted_ends.sort(function (s1, s2) {
+					return s1[0] - s2[0];
+				});
+
+				if (sorted_ends[0][0] === 0 && use_astar) {
+					use_astar = false;
+					this.m_pcb.unmark_distances();
+					this.m_pcb.mark_distances(
+						this.m_pcb.m_routing_flood_vectors,
+						this.m_radius,
+						this.m_via,
+						this.m_gap,
+						localVisited,
+						ends,
+						this.m_allowedLayers,
+					);
+					sorted_ends = [];
+					for (let node of ends) sorted_ends.push([this.m_pcb.get_node(node), node]);
+					sorted_ends.sort(function (s1, s2) {
+						return s1[0] - s2[0];
+					});
+				}
+
+				let result = this.backtrack_path(localVisited, sorted_ends[0][1], this.m_radius, this.m_via, this.m_gap, this.m_allowedLayers);
+				this.m_pcb.unmark_distances();
+				if (!result[1]) {
+					this.remove();
+					return false;
+				}
+				for (let node of result[0]) {
+					localVisited.add(node);
+					globalVisited.add(node);
+				}
+				this.m_paths.push(result[0]);
+			}
+			this.m_paths = this.optimise_paths(this.m_paths);
+			this.add_paths_collision_lines();
+			this.add_terminal_collision_lines();
+			return true;
 		}
 
 		//attempt to route this net on the current boards state
